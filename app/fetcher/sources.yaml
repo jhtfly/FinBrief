@@ -1,0 +1,608 @@
+# 金融热点编译程序 预置信源配置（2026-10-24 实测逐站核验）
+# mode: rss | html | sitemap
+# 分类: cb_reg=国际金融监管/央行  ins=保险/养老监管  dep=存款保险  cons=咨询/评级/投行
+# 标注"需代理"的站点为大陆直连 403/超时（反爬或网络原因），开启代理后可能恢复；
+# 全部站点失败均记录原因并继续，不中断任务。
+
+sources:
+  # ---------- 国际金融监管 / 央行 ----------
+  - key: fsb
+    name_cn: 金融稳定理事会
+    name_en: FSB
+    category: cb_reg
+    mode: rss
+    config:
+      rss_url: https://www.fsb.org/feed/
+    note: 实测直连可用
+
+  - key: bis_press
+    name_cn: 国际清算银行（新闻稿）
+    name_en: BIS Press Releases
+    category: cb_reg
+    mode: rss
+    config:
+      rss_url: https://www.bis.org/doclist/all_pressrels.rss
+    note: BIS官方RSS，实测可用
+
+  - key: bis_cbspeeches
+    name_cn: 国际清算银行（央行行长演讲）
+    name_en: BIS Central Bankers' Speeches
+    category: cb_reg
+    mode: rss
+    config:
+      rss_url: https://www.bis.org/doclist/cbspeeches.rss
+    note: BIS官方RSS，实测可用；演讲类线索政策含量高
+
+  - key: bis_mgmtspeeches
+    name_cn: 国际清算银行（管理层演讲）
+    name_en: BIS Management Speeches
+    category: cb_reg
+    mode: rss
+    config:
+      rss_url: https://www.bis.org/doclist/mgmtspeeches.rss
+    note: BIS官方RSS，实测可用
+
+  - key: imf
+    name_cn: 国际货币基金组织
+    name_en: IMF
+    category: cb_reg
+    mode: rss
+    config:
+      rss_url: https://www.imf.org/en/News/RSS?Language=ENG&category=ALL
+    note: 大陆直连返回403（Akamai防护），需开启代理后使用
+
+  - key: iosco
+    name_cn: 国际证监会组织
+    name_en: IOSCO
+    category: cb_reg
+    mode: html
+    config:
+      list_url: https://www.iosco.org/news/
+      item: "li.news-item, article, .news-list li"
+      link: a
+    note: 大陆直连403，需代理；选择器待代理环境下校准
+
+  - key: sec
+    name_cn: 美国证交会
+    name_en: SEC
+    category: cb_reg
+    mode: rss
+    config:
+      rss_url: https://www.sec.gov/news/pressreleases.rss
+    note: 官方RSS，实测可用
+
+  - key: esma
+    name_cn: 欧洲证券与市场管理局
+    name_en: ESMA
+    category: cb_reg
+    mode: html
+    config:
+      list_url: https://www.esma.europa.eu/press-news/esma-news
+      item: .news-contentcard
+      link: a
+      date: .search-date
+    note: 实测可用；日期格式 dd/mm/yyyy
+
+  - key: boj
+    name_cn: 日本银行
+    name_en: Bank of Japan
+    category: cb_reg
+    mode: rss
+    config:
+      rss_url: https://www.boj.or.jp/en/rss/whatsnew.xml
+    note: 官方全站更新RSS，实测可用（含统计类更新，由AI筛选过滤）
+
+  - key: mas
+    name_cn: 新加坡金融管理局
+    name_en: MAS
+    category: cb_reg
+    mode: sitemap
+    config:
+      sitemap_url: https://www.mas.gov.sg/sitemap.xml
+      include: "/news/(media-releases|speeches|statements|parliamentary-sitting|other-news)/2026/"
+      date_from: url
+      url_date_regexp: "/news/[a-z-]+/(\\d{4})/"
+      max_items: 40
+    note: 官网为脚本渲染，走sitemap；URL仅含年份故日期留空，需人工核对
+
+  - key: finma
+    name_cn: 瑞士金融市场监督管理局
+    name_en: FINMA
+    category: cb_reg
+    mode: sitemap
+    config:
+      sitemap_url: https://www.finma.ch/en/sitemap.xml
+      include: "/en/news/\\d{4}/\\d{2}/"
+      date_from: lastmod
+      max_items: 40
+    note: 实测可用；sitemap含lastmod精确到日
+
+  - key: worldbank
+    name_cn: 世界银行集团
+    name_en: World Bank Group
+    category: cb_reg
+    mode: html
+    config:
+      list_url: https://www.worldbank.org/en/news
+      link_regexp: "/en/news/(press-release|speech|feature|statement|immersive-story)/\\d{4}/\\d{2}/\\d{2}/"
+      url_date_regexp: "/(\\d{4})/(\\d{2})/(\\d{2})/"
+      max_items: 40
+    note: 实测可用；日期取自URL（精确到日）
+
+  - key: ecb
+    name_cn: 欧洲中央银行
+    name_en: ECB
+    category: cb_reg
+    mode: rss
+    config:
+      rss_url: https://www.ecb.europa.eu/rss/press.html
+    note: 官方RSS，实测可用
+
+  - key: fed
+    name_cn: 美联储
+    name_en: Federal Reserve
+    category: cb_reg
+    mode: rss
+    config:
+      rss_url: https://www.federalreserve.gov/feeds/press_all.xml
+    note: 官方RSS，实测可用
+
+  - key: fca
+    name_cn: 英国金融行为监管局
+    name_en: FCA
+    category: cb_reg
+    mode: html
+    config:
+      list_url: https://www.fca.org.uk/news/news-stories
+      item: .news-items article, .views-row
+      link: a
+      date: time
+      date_attr: datetime
+    note: 大陆直连403，需开启代理；选择器待代理环境校准
+
+  - key: fdic
+    name_cn: 美国联邦存款保险公司
+    name_en: FDIC
+    category: cb_reg
+    mode: html
+    config:
+      list_url: https://www.fdic.gov/news/press-releases
+      item: .views-row
+      title: .news-title
+      date: .news-date
+    note: 实测可用
+
+  - key: cdic
+    name_cn: 加拿大存款保险公司
+    name_en: CDIC
+    category: dep
+    mode: sitemap
+    config:
+      sitemap_url: https://www.cdic.ca/post-sitemap.xml
+      include: "/(news|speeches|articles)/"
+      date_from: lastmod
+      max_items: 30
+    note: 实测可用；站点更新频率低，时间窗内常无新内容属正常
+
+  # ---------- 保险 / 养老监管 ----------
+  - key: iais
+    name_cn: 国际保险监督官协会
+    name_en: IAIS
+    category: ins
+    mode: html
+    config:
+      list_url: https://www.iais.org/news-and-events/latest-news/
+      item: .post
+      link: a
+      date: time
+      date_attr: datetime
+    note: 实测可用（官网已由iaisweb.org迁移至iais.org）
+
+  - key: eiopa
+    name_cn: 欧洲保险与职业养老金管理局
+    name_en: EIOPA
+    category: ins
+    mode: html
+    config:
+      list_url: https://www.eiopa.europa.eu/news-and-events/news_en
+      item: .ecl-content-item, .view-content .views-row
+      link: a
+    note: 大陆直连403，需开启代理；选择器待代理环境校准
+
+  # ---------- 存款保险 ----------
+  - key: iadi
+    name_cn: 国际存款保险协会
+    name_en: IADI
+    category: dep
+    mode: html
+    config:
+      list_url: https://www.iadi.org/news-and-media/news/
+      link_regexp: "iadi\\.org/\\d{4}/\\d{2}/[a-z0-9-]+/?$"
+      max_items: 30
+    note: 实测可用；URL仅含年月，日期留空需人工核对
+
+  # ---------- 咨询 / 评级 / 投行 ----------
+  - key: mckinsey
+    name_cn: 麦肯锡（金融服务洞察）
+    name_en: McKinsey Financial Services Insights
+    category: cons
+    mode: html
+    config:
+      list_url: https://www.mckinsey.com/industries/financial-services/our-insights
+      link_regexp: 'mckinsey\.com/[^"]*/our-insights/[a-z0-9-]+'
+      max_items: 30
+    note: 大陆直连超时，需开启代理
+
+  - key: spglobal
+    name_cn: 标普全球（评级研究）
+    name_en: S&P Global Ratings
+    category: cons
+    mode: html
+    config:
+      list_url: https://www.spglobal.com/ratings/en/research-insights
+      item: .article-list li, .research-item
+      link: a
+    note: 大陆直连403，需开启代理；选择器待代理环境校准
+
+  - key: moodys
+    name_cn: 穆迪
+    name_en: Moody's
+    category: cons
+    mode: html
+    enabled: 0
+    config:
+      list_url: https://www.moodys.com/research-and-events
+      item: .mo-body-item
+      link: a
+    note: 官网为脚本渲染且反爬，默认停用
+
+  - key: goldman
+    name_cn: 高盛（洞察）
+    name_en: Goldman Sachs Insights
+    category: cons
+    mode: html
+    config:
+      list_url: https://www.goldmansachs.com/insights/
+      link_regexp: "/insights/(articles|goldman-sachs-exchanges|the-markets|podcasts|videos)/[a-z0-9-]+"
+      date_in_parent: true
+      max_items: 30
+    note: 实测可用；日期取自文章卡片父容器
+
+  - key: mschina
+    name_cn: 摩根士丹利中国（研究报告）
+    name_en: Morgan Stanley China
+    category: cons
+    mode: html
+    config:
+      list_url: https://www.morganstanleychina.com/ideas
+      item: .row-base
+      title: a
+      title_regexp: '^\S+\s+(.+?)\s+\d{4}年'
+      link: a
+      date_regexp: "\\d{4}年\\d{2}月\\d{2}日"
+    note: 实测可用；中文站，更新频率低
+
+  - key: jpmorgan
+    name_cn: 摩根大通（新闻稿）
+    name_en: JPMorgan Chase
+    category: cons
+    mode: html
+    enabled: 0
+    config:
+      list_url: https://www.jpmorganchase.com/newsroom/press-releases
+      item: .press-release-item
+      link: a
+    note: 官网为脚本渲染，默认停用；可经其RSS或代理环境后续校准
+
+  # ========== 参考信源组（v2.3 由书签《编译线索网址》整理，2026-10-25 逐站验证；默认不采集，可在信源管理加入常用） ==========
+  - key: boe
+    name_cn: 英格兰银行
+    name_en: Bank of England
+    category: cb_reg
+    mode: rss
+    src_group: reference
+    in_common: 0
+    config:
+      rss_url: https://www.bankofengland.co.uk/rss/news
+    note: 参考信源 · 实测需代理 · 官方RSS含新闻稿与演讲
+
+  - key: amro
+    name_cn: 东盟与中日韩宏观研究办公室
+    name_en: AMRO
+    category: cb_reg
+    mode: rss
+    src_group: reference
+    in_common: 0
+    config:
+      rss_url: https://www.amro-asia.org/feed
+    note: 参考信源 · 实测需代理 · ASEAN+3 宏观监测机构
+
+  - key: bruegel
+    name_cn: 布鲁盖尔研究所
+    name_en: Bruegel
+    category: thinktank
+    mode: rss
+    src_group: reference
+    in_common: 0
+    config:
+      rss_url: https://www.bruegel.org/rss.xml
+    note: 参考信源 · 欧洲经济政策智库 · 更新频率约月度
+
+  - key: atlanticcouncil
+    name_cn: 大西洋理事会
+    name_en: Atlantic Council
+    category: thinktank
+    mode: rss
+    src_group: reference
+    in_common: 0
+    config:
+      rss_url: https://www.atlanticcouncil.org/feed/
+    note: 参考信源 · 实测需代理 · 地缘经济与金融研究
+
+  - key: cfr
+    name_cn: 美国外交关系委员会
+    name_en: CFR
+    category: thinktank
+    mode: rss
+    src_group: reference
+    in_common: 0
+    config:
+      rss_url: https://www.cfr.org/feed
+    note: 参考信源 · 实测需代理 · 含《外交》杂志动态
+
+  - key: niesr
+    name_cn: 英国国家经济与社会研究所
+    name_en: NIESR
+    category: thinktank
+    mode: rss
+    src_group: reference
+    in_common: 0
+    config:
+      rss_url: https://niesr.ac.uk/feed
+    note: 参考信源 · 实测需代理 · 英国宏观经济预测
+
+  - key: omfif
+    name_cn: 官方货币与金融机构论坛
+    name_en: OMFIF
+    category: thinktank
+    mode: rss
+    src_group: reference
+    in_common: 0
+    config:
+      rss_url: https://www.omfif.org/feed/
+    note: 参考信源 · 实测需代理 · 央行与主权投资研究
+
+  - key: oxford_econ
+    name_cn: 牛津经济研究院
+    name_en: Oxford Economics
+    category: cons
+    mode: rss
+    src_group: reference
+    in_common: 0
+    config:
+      rss_url: https://www.oxfordeconomics.com/feed/
+    note: 参考信源 · 实测需代理 · 宏观预测与行业研究
+
+  - key: project_syndicate
+    name_cn: 世界报业辛迪加
+    name_en: Project Syndicate
+    category: media
+    mode: rss
+    src_group: reference
+    in_common: 0
+    config:
+      rss_url: https://www.project-syndicate.org/rss
+    note: 参考信源 · 实测需代理 · 全球经济学家评论
+
+  - key: thehill
+    name_cn: 国会山报（财经）
+    name_en: The Hill
+    category: media
+    mode: rss
+    src_group: reference
+    in_common: 0
+    config:
+      rss_url: https://thehill.com/feed
+    note: 参考信源 · 建议代理 · 美国政策新闻（量大）
+
+  - key: rand_pubs
+    name_cn: 兰德公司（出版物）
+    name_en: RAND Corporation
+    category: thinktank
+    mode: sitemap
+    src_group: reference
+    in_common: 0
+    config:
+      sitemap_url: https://www.rand.org/sitemap.xml
+      include: "/pubs/"
+      date_from: lastmod
+      max_items: 40
+    note: 参考信源 · 实测需代理 · 站点地图模式，出版频率低（月度若干篇）
+
+  - key: standard_chartered
+    name_cn: 渣打银行
+    name_en: Standard Chartered
+    category: cons
+    mode: rss
+    src_group: reference
+    in_common: 0
+    config:
+      rss_url: https://www.sc.com/en/feed/
+    note: 参考信源 · 实测需代理 · 含新闻稿与研究动态
+
+  - key: whitehouse
+    name_cn: 白宫（美国）
+    name_en: The White House
+    category: gov
+    mode: rss
+    src_group: reference
+    in_common: 0
+    config:
+      rss_url: https://www.whitehouse.gov/news/feed
+    note: 参考信源 · 实测直连可用 · 美国政策声明与行政令（金融相关由筛选把关）
+
+  - key: hoover
+    name_cn: 胡佛研究所
+    name_en: Hoover Institution
+    category: thinktank
+    mode: rss
+    src_group: reference
+    in_common: 0
+    config:
+      rss_url: https://www.hoover.org/feed
+    note: 参考信源 · 实测需代理 · feed 无日期字段，线索多为"日期待核"（可补全）
+
+  - key: eiu
+    name_cn: 经济学人智库
+    name_en: EIU
+    category: cons
+    mode: rss
+    src_group: reference
+    in_common: 0
+    config:
+      rss_url: https://www.eiu.com/n/feed/
+    note: 参考信源 · 实测需代理 · 低频，内容含机构资讯，筛选会过滤无关条目
+
+  - key: imd
+    name_cn: 洛桑国际管理发展学院
+    name_en: IMD
+    category: thinktank
+    mode: rss
+    src_group: reference
+    in_common: 0
+    config:
+      rss_url: https://www.imd.org/rss
+    note: 参考信源 · 实测需代理 · 管理研究与世界经济展望
+
+  - key: pew_economy
+    name_cn: 皮尤研究中心
+    name_en: Pew Research Center
+    category: thinktank
+    mode: rss
+    src_group: reference
+    in_common: 0
+    config:
+      rss_url: https://www.pewresearch.org/feed/
+    note: 参考信源 · 实测需代理 · 全站动态（含社会议题），经济研究类由 AI 筛选甄别
+
+  # ---------- v2.6 新增：国外权威金融媒体（2026-10-26 实测验证） ----------
+  - key: wsj_markets
+    name_cn: 华尔街日报（市场）
+    name_en: WSJ Markets
+    category: media
+    mode: rss
+    src_group: reference
+    in_common: 0
+    config:
+      rss_url: https://feeds.content.dowjones.io/public/rss/RSSMarketsMain
+    note: 参考信源 · 实测需代理 · Dow Jones 官方公开 RSS，量大（约60条/2周）
+
+  - key: marketwatch
+    name_cn: 市场观察
+    name_en: MarketWatch
+    category: media
+    mode: rss
+    src_group: reference
+    in_common: 0
+    config:
+      rss_url: https://feeds.marketwatch.com/marketwatch/topstories/
+    note: 参考信源 · 实测需代理 · 美股财经头条
+
+  - key: economist_finance
+    name_cn: 经济学人（财经板块）
+    name_en: "The Economist · Finance & Economics"
+    category: media
+    mode: rss
+    src_group: reference
+    in_common: 0
+    config:
+      rss_url: https://www.economist.com/finance-and-economics/rss.xml
+    note: 参考信源 · 实测需代理 · 深度财经分析
+
+  - key: economist_leaders
+    name_cn: 经济学人（社论）
+    name_en: "The Economist · Leaders"
+    category: media
+    mode: rss
+    src_group: reference
+    in_common: 0
+    config:
+      rss_url: https://www.economist.com/leaders/rss.xml
+    note: 参考信源 · 实测需代理 · 周刊社论
+
+  - key: fortune
+    name_cn: 财富杂志
+    name_en: Fortune
+    category: media
+    mode: rss
+    src_group: reference
+    in_common: 0
+    config:
+      rss_url: https://fortune.com/feed/
+    note: 参考信源 · 实测需代理 · 商业与金融动态
+
+  - key: aljazeera
+    name_cn: 半岛电视台
+    name_en: Al Jazeera
+    category: media
+    mode: rss
+    src_group: reference
+    in_common: 0
+    config:
+      rss_url: https://www.aljazeera.com/xml/rss/all.xml
+    note: 参考信源 · 实测需代理 · 全站要闻（金融相关由筛选甄别）
+
+  - key: bbc_business
+    name_cn: BBC（商业）
+    name_en: BBC Business
+    category: media
+    mode: rss
+    src_group: reference
+    in_common: 0
+    config:
+      rss_url: https://feeds.bbci.co.uk/news/business/rss.xml
+    note: 参考信源 · 实测需代理 · 英国商业财经新闻
+
+  - key: guardian_business
+    name_cn: 卫报（商业）
+    name_en: The Guardian Business
+    category: media
+    mode: rss
+    src_group: reference
+    in_common: 0
+    config:
+      rss_url: https://www.theguardian.com/business/rss
+    note: 参考信源 · 实测需代理 · 英国商业财经新闻
+
+  - key: ftchinese
+    name_cn: FT中文网
+    name_en: FT Chinese
+    category: media
+    mode: rss
+    src_group: reference
+    in_common: 0
+    config:
+      rss_url: https://www.ftchinese.com/rss/news
+    note: 参考信源 · 实测需代理 · 中文财经资讯（可直接阅读，编译价值高）
+
+  - key: gnews_fin_stability
+    name_cn: Google News 聚合（金融稳定）
+    name_en: "Google News: Financial Stability"
+    category: media
+    mode: rss
+    src_group: reference
+    in_common: 0
+    config:
+      rss_url: "https://news.google.com/rss/search?q=financial+stability+OR+central+bank&hl=en-US&gl=US&ceid=US:en"
+    note: 参考信源 · 实测需代理 · 多源聚合按关键词检索，量大
+
+  - key: gnews_reuters
+    name_cn: 路透社（谷歌新闻聚合）
+    name_en: Reuters via Google News
+    category: media
+    mode: rss
+    src_group: reference
+    in_common: 0
+    config:
+      rss_url: "https://news.google.com/rss/search?q=when:2d+site:reuters.com&hl=en-US&gl=US&ceid=US:en"
+    note: 参考信源 · 实测需代理 · 路透官方 RSS 已停用，此为多源聚合替代方案（近2天）
