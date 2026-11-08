@@ -16,6 +16,9 @@ __pycache__/
 rsshub/
 rsshub_bundle/
 
+# ---- 本机构建环境 ----
+.venv/
+
 # ---- PyInstaller 产物 ----
 dist/
 build_tmp/
