@@ -384,10 +384,10 @@ def init_db():
 
 # ---------------- settings ----------------
 DEFAULT_SETTINGS = {
-    "api_base_url": "https://api.agnes-ai.cn/v1",
+    "api_base_url": "",                  # v2.20.2 不预填服务商地址，用户自定义（OpenAI 兼容）
     "api_key": "",                       # 用户在设置页输入，绝不打包
-    "model_screen": "agnes-2.5-flash",   # 筛选模型（2.0-flash 免费档限流，默认用2.5）
-    "model_compile": "agnes-2.5-flash",  # 编译模型（长文质量）
+    "model_screen": "",                  # v2.20.2 不预填模型名，用户自定义
+    "model_compile": "",                 # v2.20.2 不预填模型名，用户自定义
     "model_translate": "",               # 标题翻译模型，空=用筛选模型
     "trial_model": "deepseek-v4.1-flash",  # v2.19 试用模型（与 trial_config.TRIAL_DEFAULT_MODEL 一致）
     "auto_translate": "1",               # 采集后自动翻译英文标题（v2.3 起默认开）

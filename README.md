@@ -1,6 +1,25 @@
+<div align="center">
+
+<img src="docs/screenshots/icon.png" width="110" alt="FinBrief 图标"/>
+
 # FinBrief · 金融热点编译系统
 
-一款在本地运行的信息聚合研究工具：自动检索境内外机构公开信息，AI 参与筛选与编译归纳，人工复核定稿后按模板导出 Word。**全流程数据保存在本机**，不依赖任何云端服务。
+**把"每天扫境外媒体 → 写中文金融专报"的整条流水线，装进一个本地文件夹。**
+
+自动检索境内外机构公开信息 → AI 逐条筛选评分 → 编译成稿 → 人工复核定稿 → 按专报模板导出 Word。
+**全流程数据保存在本机**，不依赖任何云端服务。
+
+[下载程序](../../releases) · [功能特性](#功能特性) · [快速开始](#快速开始) · [常见问题](#常见问题) · [源码运行](#方式二源码运行开发者)
+
+![Platform](https://img.shields.io/badge/Platform-Windows%2010%2F11%20x64-blue) ![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white) ![License](https://img.shields.io/badge/License-MIT-8A9A5B) ![RSSHub](https://img.shields.io/badge/RSSHub-%E5%86%85%E7%BD%AE%E5%8F%AF%E9%80%89-E4A11B?logo=rss&logoColor=white) ![Data](https://img.shields.io/badge/%E6%95%B0%E6%8D%AE-%E5%85%A8%E6%9C%AC%E5%9C%B0-2EA043)
+
+<img src="docs/screenshots/main.png" width="920" alt="FinBrief 初始界面（演示数据）"/>
+
+*初始界面 · 线索面板（图为内置演示数据）*
+
+</div>
+
+---
 
 > 定位：面向个人研究者的"境外金融信息 → 中文专报"自动化工作台。AI 只产出初稿，专报须经人工复核后导出。
 

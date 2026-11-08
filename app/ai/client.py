@@ -196,6 +196,8 @@ def chat(messages: list, model: str, temperature: float = 0.3,
     base, key, model = _route(s, model)
     if not base or not key:
         raise AIError("未配置 API 地址或密钥：请激活试用密匙，或在「设置」中填写自定义 API")
+    if not model:   # v2.20.2：默认模型名不再预填，漏填时给出可操作的报错
+        raise AIError("未配置模型名：请在「设置 → 大模型 API」填写筛选 / 编译 / 翻译模型")
     if retries is None:
         try:
             retries = max(0, min(6, int(s.get("ai_retry_max", "3"))))
@@ -302,6 +304,8 @@ def chat_stream(messages: list, model: str, temperature: float = 0.3,
     base, key, model = _route(s, model)
     if not base or not key:
         raise AIError("未配置 API 地址或密钥：请激活试用密匙，或在「设置」中填写自定义 API")
+    if not model:   # v2.20.2：默认模型名不再预填，漏填时给出可操作的报错
+        raise AIError("未配置模型名：请在「设置 → 大模型 API」填写筛选 / 编译 / 翻译模型")
     if retries is None:
         try:
             retries = max(0, min(6, int(s.get("ai_retry_max", "3"))))
