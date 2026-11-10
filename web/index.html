@@ -789,28 +789,32 @@ body.dark .diff-new{background:rgba(13,148,136,.22); color:#5eead4;}
     <div class="footer-note">普通订阅源（无需走 RSSHub 的）用此通道：程序先实测解析（确认是可解析的订阅且有条目）再入库，默认停用，启用后参与检索。</div>
     <div id="rssAddMsg" style="font-size:12.5px;margin-top:4px"></div>
   </div>
-  <div class="card half-card" id="aiAddCard" style="display:none">
-    <h3>AI 添加信源（存入自定义信源组）</h3>
-    <div style="display:flex;gap:10px;margin-top:8px">
-      <input type="text" id="aiAddUrl" placeholder="输入机构官网网址，如 https://www.bis.org" style="flex:1">
-      <button id="btnAiAdd">AI 分析并添加</button>
-    </div>
-    <div class="footer-note">AI 自动探测站点生成采集配置；失败自动停用并注明原因，复杂站点建议开代理。</div>
-    <div style="border-top:1px solid var(--line);margin-top:12px;padding-top:10px">
-      <h3>AI 搜索引擎抓取（官网加不进来时的兜底方案）</h3>
-      <div style="display:flex;gap:10px;margin-top:8px;flex-wrap:wrap">
-        <input type="text" id="searchKw" placeholder="输入机构名或关键词，多个用顿号或逗号分隔，如：Financial Stability Board、IMF"
-               style="flex:1;min-width:280px">
-        <select id="searchEngine" style="width:130px">
-          <option value="auto">引擎：自动</option>
-          <option value="google">谷歌</option>
-          <option value="ddg">DuckDuckGo</option>
-          <option value="bing">必应</option>
-          <option value="baidu">百度</option>
-        </select>
-        <button id="btnSearchClue">🔍 AI 搜索抓取线索</button>
-      </div>
-      <div class="footer-note">自动顺序 谷歌→DuckDuckGo→必应→百度（失败自动切换）；抓回符合条件的线索自动入库，进度见任务中心。</div>
+  <div class="card" id="aiAddCard" style="display:none">   <!-- v2.21.2 全宽卡：AI 添加/搜索引擎抓取双列并排，不再上下堆两行 -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start">
+      <section>
+        <h3>AI 添加信源（存入自定义信源组）</h3>
+        <div style="display:flex;gap:10px;margin-top:8px">
+          <input type="text" id="aiAddUrl" placeholder="输入机构官网网址，如 https://www.bis.org" style="flex:1">
+          <button id="btnAiAdd">AI 分析并添加</button>
+        </div>
+        <div class="footer-note">AI 自动探测站点生成采集配置；失败自动停用并注明原因，复杂站点建议开代理。</div>
+      </section>
+      <section style="border-left:1px solid var(--line);padding-left:24px;min-width:0">
+        <h3>AI 搜索引擎抓取（官网加不进来时的兜底方案）</h3>
+        <div style="display:flex;gap:10px;margin-top:8px;flex-wrap:wrap">
+          <input type="text" id="searchKw" placeholder="输入机构名或关键词，多个用顿号或逗号分隔，如：Financial Stability Board、IMF"
+                 style="flex:1;min-width:220px">
+          <select id="searchEngine" style="width:130px">
+            <option value="auto">引擎：自动</option>
+            <option value="google">谷歌</option>
+            <option value="ddg">DuckDuckGo</option>
+            <option value="bing">必应</option>
+            <option value="baidu">百度</option>
+          </select>
+          <button id="btnSearchClue">🔍 AI 搜索抓取线索</button>
+        </div>
+        <div class="footer-note">自动顺序 谷歌→DuckDuckGo→必应→百度（失败自动切换）；抓回符合条件的线索自动入库，进度见任务中心。</div>
+      </section>
     </div>
   </div>
   </div><!-- /src-cards -->
@@ -1065,7 +1069,20 @@ body.dark .diff-new{background:rgba(13,148,136,.22); color:#5eead4;}
       <button onclick="pickSrcCategoryApply()">确定</button>
     </div>
     <div style="display:flex;margin-top:14px"><span style="flex:1"></span>
+      <button class="ghost" onclick="$('#catPickBg').classList.remove('on');catMgrOpen()">✎ 管理分类</button>
       <button class="ghost" onclick="$('#catPickBg').classList.remove('on')">取消</button></div>
+  </div>
+</div>
+<div class="modal-bg" id="catMgrBg">
+  <div class="modal" style="width:470px">
+    <h3>管理分类</h3>
+    <div class="pt-sub" style="margin:2px 0 8px">增删改精选信源的分类名称（重命名自动同步已用该分类的信源）</div>
+    <div id="catMgrList" style="max-height:44vh;overflow:auto"></div>
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <input type="text" id="catMgrAdd" placeholder="新分类名…" style="flex:1" onkeydown="if(event.key==='Enter')catMgrAdd()">
+      <button onclick="catMgrAdd()">＋ 新增分类</button>
+      <button class="ghost" onclick="$('#catMgrBg').classList.remove('on')">关闭</button>
+    </div>
   </div>
 </div>
 <div class="modal-bg" id="srcDetailBg">
@@ -4247,26 +4264,80 @@ const CAT_NAMES = {cb_reg:"央行与监管",intl:"国际组织",cons:"咨询/评
   media:"财经媒体",ins:"保险/养老",dep:"存款保险",gov:"政府机构",other:"其他"};
 const CAT_ORDER = ["cb_reg","intl","bank","cons","market","media","tech","thinktank","ins","dep","gov","other"];
 function catName(c){ return CAT_NAMES[c] || c || CAT_NAMES.other; }
+function catDisp(c){ return CAT_NAMES[c] || c || ""; }   // v2.21.2：仅显示归一（空不改名）
 function setSrcCatFilter(v){   // v2.21.1 精选分类筛选切换（重渲染列表）
   srcCatFilter = (srcCatFilter === v) ? "" : v;
   loadSources();
 }
 function catOrderKey(s){
-  let c = s.category || "";
-  let i = CAT_ORDER.indexOf(c);
+  const c = CAT_NAMES[s.category||""] || (s.category||"");   // v2.21.2 中文/旧 key 归一
+  const i = CAT_ORDER.map(k=>CAT_NAMES[k]).indexOf(c);
   return i >= 0 ? i : 99;
 }
 // v2.21 分类选择浮层（加入精选时提示选择哪一类；右键可改分类）
+// v2.21.2 分类清单管理：默认 12 类 + 用户增删改（存后端设置 src_categories）
+let CAT_LIST_DEFAULT = Object.values(CAT_NAMES).slice();
+function catMgrOpen(){
+  const apiReq = api("/api/category_list");
+  apiReq.then(r=>{
+    if(Array.isArray(r.list) && r.list.length) CAT_LIST_DEFAULT = r.list.map(String);
+    _renderCatMgr();
+  }).catch(()=>_renderCatMgr());
+}
+function _renderCatMgr(){
+  const box = $("#catMgrList");
+  if(!box) return;
+  const counts = {};
+  (SOURCES_ALL||[]).filter(s=>s.in_common===1 || s.in_common===true).forEach(s=>{
+    const c=(s.category||"").trim(); if(!c) return;
+    const d = catDisp(c); counts[d]=(counts[d]||0)+1;
+  });
+  box.innerHTML = CAT_LIST_DEFAULT.map(nm=>
+    `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line)">
+      <span style="font-weight:600">${esc(nm)}</span>
+      <span class="muted" style="font-size:11.5px">(${counts[nm]||0})</span>
+      <span style="flex:1"></span>
+      <button class="sm ghost" onclick="catMgrRename('${esc(nm).replace(/'/g,"&#39;")}')">重命名</button>
+      <button class="sm ghost" style="color:var(--red)" onclick="catMgrDelete('${esc(nm).replace(/'/g,"&#39;")}')">删除</button>
+    </div>`).join("")
+    + `<div class="muted" style="font-size:11.5px;margin-top:6px">删除分类：使用该分类的信源会转为「未分类」，不会删除信源本身。重命名会同步更新这些信源。</div>`;
+  $("#catMgrAdd").value = "";
+  $("#catMgrBg").classList.add("on");
+}
+async function catMgrAdd(){
+  const nm = ($("#catMgrAdd").value||"").trim();
+  if(!nm){ toast("请输入新分类名"); return; }
+  const r = await api("/api/sources/category_mgr", {method:"POST",
+    body: JSON.stringify({op:"add", nm})});
+  if(r.ok){ CAT_LIST_DEFAULT = r.list; toast("已新增分类：" + nm); _renderCatMgr(); loadSources(); }
+  else toast(r.error || "新增失败");
+}
+async function catMgrRename(oldNm){
+  const nm = prompt(`分类「${oldNm}」改为：`, oldNm);
+  nm = (nm||"").trim();
+  if(!nm || nm === oldNm) return;
+  const r = await api("/api/sources/category_mgr", {method:"POST",
+    body: JSON.stringify({op:"rename", nm: oldNm, new_nm: nm})});
+  if(r.ok){ CAT_LIST_DEFAULT = r.list; toast(`已改名 ${oldNm} → ${nm}（涉及信源已同步）`); _renderCatMgr(); loadSources(); }
+  else toast(r.error || "改名失败（可能新名称已存在）");
+}
+async function catMgrDelete(nm){
+  if(!confirm(`删除分类「${nm}」？\n使用该分类的信源将转为「未分类」（信源本体保留）。`)) return;
+  const r = await api("/api/sources/category_mgr", {method:"POST",
+    body: JSON.stringify({op:"delete", nm})});
+  if(r.ok){ CAT_LIST_DEFAULT = r.list; toast("分类已删除"); _renderCatMgr(); loadSources(); }
+  else toast(r.error || "删除失败");
+}
 let _catPickKey = null, _catPickJoin = null;
 function pickSrcCategory(key, joinPicked){
   _catPickKey = key; _catPickJoin = !!joinPicked;
   const src = (SOURCES_ALL||[]).find(x=>x.key===key) || {};
-  const cur = pickSrcCategory.normalizeName(src.category || "");
+  const cur = catDisp((src.category||"").trim());   // v2.21.2 显示名归一（旧英文 key 也正确高亮）
   const box = $("#catPickList");
   if(!box) { pickSrcCategoryLegacy(key, joinPicked, cur); return; }
   box.innerHTML = "";
-  const names = new Set(Object.values(CAT_NAMES));
-  (SOURCES_ALL||[]).forEach(x=>{ const c=(x.category||"").trim(); if(c) names.add(c); });
+  const names = new Set(CAT_LIST_DEFAULT.slice());
+  (SOURCES_ALL||[]).forEach(x=>{ const c=(x.category||"").trim(); if(c) names.add(catDisp(c)); });   // v2.21.2 修复：旧英文 key 归一成中文名，不再把 cb_reg/media 等生词当分类名
   [...names].filter(Boolean).forEach(nm=>{
     const b = document.createElement("button");
     b.className = "chip-toggle" + (nm===cur?" on":"");   // v2.21.1 独立浮层用带边框样式更醒目
@@ -4278,7 +4349,6 @@ function pickSrcCategory(key, joinPicked){
   $("#catPickInput").value = "";
   $("#catPickBg").classList.add("on");
 }
-pickSrcCategory.normalizeName = c => c;
 function pickSrcCategoryApply(nm){
   nm = ($("#catPickInput").value.trim() || nm || "").trim();
   if(!nm) return;
@@ -4333,19 +4403,25 @@ async function loadSources(){
 
   $("#srcGroupNote").textContent = SRC_GROUP_NOTE[srcTab] || "";
   // v2.21.1 精选页分类筛选条：全部 + 各分类（含自定义名）+ 未分类，按数量排序；点选过滤
+  // v2.21.2 修复：全部计数恒为精选总数；计数与名称同行且不折行；按显示名聚合（旧 key 与中文名同归一类）
   {
     const bar = $("#srcCatBar");
     if(bar){
       if(srcTab !== "picked"){ bar.style.display = "none"; }
       else {
         const picked = SOURCES_ALL.filter(s=>s.in_common===1 || s.in_common===true);
-        const counts = {};
-        picked.forEach(s=>{ const c=(s.category||"").trim() || "__other"; counts[c]=(counts[c]||0)+1; });
-        const keys = Object.keys(counts).sort((a,b)=>counts[b]-counts[a]);
-        const btn = (val, label, on) => `<button class="chip${on?" on":""}" onclick="setSrcCatFilter('${val}')">${esc(label)}（${counts[val]||0}）</button>`;
-        bar.innerHTML = btn("", "全部", !srcCatFilter)
-          + keys.filter(k=>k!=="__other").map(k=>btn(k, catName(k), srcCatFilter===k)).join("")
-          + (counts["__other"] ? btn("__other", "未分类", srcCatFilter==="__other") : "");
+        const counts = {__other: 0};
+        picked.forEach(s=>{
+          const c=(s.category||"").trim();
+          const d = c ? catName(c) : "__other";
+          counts[d] = (counts[d]||0) + 1;
+        });
+        const names = Object.keys(counts).filter(k=>k!=="__other").sort((a,b)=>counts[b]-counts[a]);
+        const btn = (val, label, on, c) => `<button class="chip${on?" on":""}" style="white-space:nowrap;display:inline-flex;align-items:center;gap:5px;padding:5px 14px" onclick="setSrcCatFilter('${val}')"><span>${esc(label)}</span><span style="font-size:11.5px;opacity:.72;font-weight:500">${c}</span></button>`;
+        bar.innerHTML = btn("", "全部", !srcCatFilter, picked.length)
+          + names.map(k=>btn(k, k, srcCatFilter===k, counts[k])).join("")
+          + (counts["__other"] ? btn("__other", "未分类", srcCatFilter==="__other", counts["__other"]) : "")
+          + `<button class="chip-toggle" style="white-space:nowrap;padding:5px 14px;font-size:13px" onclick="srcCtxHide();catMgrOpen()">✎ 管理分类</button>`;
         bar.style.display = "";
       }
     }
@@ -4360,9 +4436,9 @@ async function loadSources(){
   if(srcTab === "picked"){
     // v2.13.5 精选信源：已加入精选（原常用 in_common）的全部源（横跨预置/参考/自定义）
     shown = SOURCES_ALL.filter(s=>s.in_common===1 || s.in_common===true);
-    if(srcCatFilter){   // v2.21.1 分类筛选（""=全部；"__other"=未分类）
+    if(srcCatFilter){   // v2.21.1 分类筛选；v2.21.2 按显示名聚合（旧英文 key 归一）
       shown = shown.filter(s => srcCatFilter === "__other"
-        ? !(s.category||"").trim() : (s.category||"").trim() === srcCatFilter);
+        ? !(s.category||"").trim() : catName((s.category||"").trim()) === srcCatFilter);
     }
   } else if(srcTab === "common"){
     // v2.21 全部信源=所有信源（不分组过滤；预置/参考/自定义，含未精选与停用）

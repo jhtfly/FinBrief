@@ -1111,6 +1111,103 @@ def api_source_category(key: str, req: SourceCategory):
     return {"ok": True}
 
 
+# ---------- v2.21.2 分类清单管理（增/删/改名；存设置键 src_categories） ----------
+# 显示名 ⇄ 旧英文 key 映射（默认 12 类；历史行可能存 key，也可能存中文名）
+DEFAULT_CAT = {
+    "央行与监管": "cb_reg", "国际组织": "intl", "咨询/评级/投行": "cons",
+    "银行与评级": "bank", "市场与投资": "market", "科技与AI": "tech",
+    "智库": "thinktank", "财经媒体": "media", "保险/养老": "ins",
+    "存款保险": "dep", "政府机构": "gov", "其他": "other",
+}
+
+
+def _load_cat_list() -> list:
+    import json as _j
+    try:
+        arr = _j.loads(db.get_setting("src_categories") or "")
+        if isinstance(arr, list) and arr:
+            return [str(x).strip() for x in arr if str(x).strip()]
+    except Exception:
+        pass
+    return list(DEFAULT_CAT.keys())
+
+
+def _save_cat_list(lst: list) -> None:
+    import json as _j
+    db.set_setting("src_categories", _j.dumps(lst, ensure_ascii=False))
+
+
+@app.get("/api/category_list")
+def api_category_list():
+    """v2.21.2 精选分类清单（含用户自定义增删改记录）。"""
+    return {"list": _load_cat_list()}
+
+
+class CatMgrReq(BaseModel):
+    op: str          # add | rename | delete
+    nm: str = ""     # op=add: 新名；op=rename/delete: 旧名
+    new_nm: str = ""  # op=rename: 新名
+
+
+@app.post("/api/sources/category_mgr")
+def api_category_mgr(req: CatMgrReq):
+    """v2.21.2 管理精选分类：add/rename/delete。rename/delete 同步更新使用该分类的信源
+    （旧存的英文 key 与中文名都算这类）；delete 把相关信源转为未分类（不删信源）。"""
+    op = (req.op or "").strip()
+    nm = (req.nm or "").strip()
+    lst = _load_cat_list()
+    if op == "add":
+        new = (req.nm or "").strip()
+        if not new:
+            return {"ok": False, "error": "新分类名为空"}
+        if len(new) > 20:
+            return {"ok": False, "error": "分类名过长（≤20 字）"}
+        if new in lst or new in DEFAULT_CAT:
+            return {"ok": False, "error": f"分类「{new}」已存在"}
+        lst.append(new)
+        _save_cat_list(lst)
+        db.log("sources", f"新增精选分类：{new}")
+        return {"ok": True, "list": lst}
+    if not nm:
+        return {"ok": False, "error": "分类名为空"}
+    if op == "rename":
+        new = (req.new_nm or "").strip()
+        if not new:
+            return {"ok": False, "error": "新名称为空"}
+        if len(new) > 20:
+            return {"ok": False, "error": "分类名过长（≤20 字）"}
+        if new in lst or new in DEFAULT_CAT:
+            return {"ok": False, "error": f"分类「{new}」已存在"}
+        old_key = DEFAULT_CAT.get(nm, "")
+        storages = [s for s in {nm, old_key} if s]
+        ph = ",".join("?" for _ in storages)
+        with db.get_conn() as conn:
+            cur = conn.execute(f"UPDATE sources SET category=? WHERE category IN ({ph})",
+                               (new, *storages))
+            moved = cur.rowcount
+        if nm in lst:
+            lst[lst.index(nm)] = new
+        else:
+            lst.append(new)
+        _save_cat_list(lst)
+        db.log("sources", f"分类改名：{nm} → {new}（同步 {moved} 个信源）")
+        return {"ok": True, "list": lst, "moved": moved}
+    if op == "delete":
+        old_key = DEFAULT_CAT.get(nm, "")
+        storages = [s for s in {nm, old_key} if s]
+        ph = ",".join("?" for _ in storages)
+        with db.get_conn() as conn:
+            cur = conn.execute(f"UPDATE sources SET category='' WHERE category IN ({ph})",
+                               (*storages,))
+            moved = cur.rowcount
+        if nm in lst:
+            lst.remove(nm)
+        _save_cat_list(lst)
+        db.log("sources", f"删除精选分类：{nm}（{moved} 个信源转为未分类）")
+        return {"ok": True, "list": lst, "moved": moved}
+    return {"ok": False, "error": "未知操作"}
+
+
 class SourcePin(BaseModel):
     pinned: bool
 
@@ -1239,7 +1336,11 @@ class RssDirectReq(BaseModel):
 @app.post("/api/sources/add_rss")
 def api_sources_add_rss(req: RssDirectReq):
     """v2.21 直连 RSS 订阅源一键添加：拉取实测（feedparser 解析成功且有条目才入库）。
-    与 RSSHub 路由无关的普通订阅源（如 WordPress 站点 /feed/）用此通道。"""
+    与 RSSHub 路由无关的普通订阅源（如 WordPress 站点 /feed/）用此通道。
+    v2.21.2 抓取加固：真实浏览器请求头多路重试→（配置了代理则）代走代理重试→
+    若返回的是网页则发现页面里的 <link rel="alternate" type="*rss+xml"> 订阅链接再试，
+    解决 investing.com 等 WAF 站点对程序 UA 的 403；粘贴 GitHub 仓库/网页地址时给出可执行的指引。"""
+    import re as _re
     import feedparser as _fp
     import httpx as _h
     url = (req.url or "").strip()
@@ -1249,17 +1350,78 @@ def api_sources_add_rss(req: RssDirectReq):
     proxy = None
     if ssett.get("proxy_enabled") == "1" and ssett.get("proxy_url"):
         proxy = ssett["proxy_url"]
-    try:
-        with _h.Client(timeout=15, verify=False, follow_redirects=True,
-                       proxy=proxy if proxy else None,
-                       headers={"User-Agent": "Mozilla/5.0 (compatible; FinBrief/1.0)"}) as cli:
-            resp = cli.get(url)
-            resp.raise_for_status()
-        raw = resp.content
-    except Exception as e:
-        return {"ok": False, "error": f"下载失败：{type(e).__name__}: {str(e)[:110]}"}
-    head_l = raw[:600].lstrip().lower()
-    if not (head_l.startswith(b"<?xml") or b"<feed" in head_l or b"<rss" in head_l):
+    uas = [
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
+        "(KHTML, like Gecko) Version/17.4 Safari/605.1.15",
+    ]
+    accepts = {
+        "Accept": "application/rss+xml, application/atom+xml, application/xml;q=0.9, "
+                  "text/xml;q=0.8, */*;q=0.7",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.6",
+    }
+    last_err = ""
+
+    def _attempt(target, ua, use_proxy):
+        try:
+            with _h.Client(timeout=14, verify=False, follow_redirects=True,
+                           proxy=use_proxy if use_proxy else None,
+                           headers={"User-Agent": ua, **accepts}) as cli:
+                resp = cli.get(target)
+                resp.raise_for_status()
+                return resp.content, None
+        except Exception as e:
+            return None, f"{type(e).__name__}: {str(e)[:100]}"
+
+    def _fetch_any(target):
+        """多路重试：直连×2 UA → 配置代理×2 UA → 本机常见代理端口兜底×2 UA；返回 (raw|None, err)。"""
+        raw = err = None
+        for use_proxy in [None] + [p for p in (proxy, "http://127.0.0.1:7897") if p]:
+            for ua in uas:
+                raw, err = _attempt(target, ua, use_proxy)
+                if raw:
+                    return raw, None
+        return raw, err or "全部尝试失败"
+
+    raw, err = _fetch_any(url)
+    if raw is None:
+        hint = ("403" in (err or "")) or ("Forbidden" in (err or ""))
+        return {"ok": False, "error": ("下载失败：" + err +
+                 ("（该站点反爬严格：请先在设置里开启代理后重试，或改用该站 RSSHub 路由/官方订阅地址）"
+                  if hint else ""))[:300]}
+    # 若拿到的是网页而非订阅 → 在页面里发现订阅地址再试
+    head_l = raw[:1200].lstrip().lower()
+    looks_rss = (head_l.startswith(b"<?xml") or b"<feed" in head_l or b"<rss" in head_l)
+    feed_url = url
+    if not looks_rss and b"<html" in raw[:4000].lower():
+        m = _re.search(rb'<link[^>]+rel=["\'][^"\']*alternate[^"\']*["\'][^>]*type=["\']'
+                       rb'application/(?:rss|atom)\+xml["\'][^>]*>', raw[:200000], _re.I)
+        if m:
+            mh = _re.search(rb'href=["\']([^"\']+)["\']', m.group(0), _re.I)
+            cand = mh.group(1).decode("utf-8", "ignore").strip() if mh else ""
+            if cand:
+                if cand.startswith("//"):
+                    cand = "https:" + cand
+                elif not cand.startswith("http"):
+                    base = url.split("?", 1)[0].rstrip("/")
+                    cand = base.rsplit("/", 1)[0] + "/" + cand.lstrip("/")
+                got, gerr = _fetch_any(cand)
+                if got:
+                    raw = got
+                    feed_url = cand
+                else:
+                    return {"ok": False, "error": f"该地址是网页，页面声明的订阅 {cand[:80]} 也拉取失败：{gerr}"}
+            else:
+                return {"ok": False, "error": "该地址是网页且未发现可用的订阅链接"}
+        else:
+            if "github.com" in url.lower():
+                return {"ok": False, "error": "这是 GitHub 仓库/网页链接而不是订阅源："
+                        "请从仓库说明里把具体的 RSS 地址（.xml / /feed 结尾）粘贴进来再加"}
+            return {"ok": False, "error": "该地址返回的是网页而不是订阅源"
+                    "（可在站点首页找 RSS 图标，通常 /rss、/feed、.xml 结尾）"}
+    head_l2 = raw[:600].lstrip().lower()
+    if not (head_l2.startswith(b"<?xml") or b"<feed" in head_l2 or b"<rss" in head_l2):
         return {"ok": False, "error": "该地址返回的不是 RSS/Atom 订阅内容（可先在浏览器确认）"}
     fp = _fp.parse(raw)
     if fp.bozo and not fp.entries:
@@ -1269,9 +1431,9 @@ def api_sources_add_rss(req: RssDirectReq):
     title = ""
     if getattr(fp, "feed", None):
         title = (getattr(fp.feed, "title", "") or "")
-    title = title.strip() or url.split("//", 1)[-1][:40]
+    title = title.strip() or feed_url.split("//", 1)[-1][:40]
     sample = [{"title": (getattr(e, "title", "") or "")[:60]} for e in fp.entries[:5]]
-    key = "rss_" + url.split("://", 1)[-1]
+    key = "rss_" + feed_url.split("://", 1)[-1]
     key = key.split("?")[0].rstrip("/")
     key = "".join(ch if (ch.isalnum() or ch in "_.-") else "_" for ch in key).strip("_")[:52]
     if not key or len(key) < 6:
@@ -1281,7 +1443,7 @@ def api_sources_add_rss(req: RssDirectReq):
            "name_en": "(RSS)",
            "category": "media",
            "mode": "rss",
-           "config": {"rss_url": url, "direct": 1},
+           "config": {"rss_url": feed_url, "direct": 1},
            "enabled": 0,
            "note": "RSS 订阅直连",
            "src_group": "custom",
