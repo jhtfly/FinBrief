@@ -780,41 +780,39 @@ body.dark .diff-new{background:rgba(13,148,136,.22); color:#5eead4;}
       </div>
     </div>
   </div>
-  <div class="card half-card" id="rssAddCard" style="display:none">
-    <h3>RSS 订阅源直连添加</h3>
-    <div style="display:flex;gap:10px;margin-top:8px">
-      <input type="text" id="rssAddUrl" placeholder="粘贴 RSS/Atom 订阅地址，如 https://www.bis.org/rss.xml 或站点 /feed/" style="flex:1">
-      <button id="btnRssAdd">测试并添加</button>
+  <div id="srcAddCol" style="flex:1 1 470px;display:flex;flex-direction:column;gap:14px;min-width:0">   <!-- v2.21.3：贴在路由库卡右侧列，RSS 直连卡在上、AI 双卡在下 -->
+    <div class="card half-card" id="rssAddCard" style="display:none;margin-bottom:0">
+      <h3>RSS 订阅源直连添加</h3>
+      <div style="display:flex;gap:10px;margin-top:8px">
+        <input type="text" id="rssAddUrl" placeholder="粘贴 RSS/Atom 订阅地址，如 https://www.bis.org/rss.xml 或站点 /feed/" style="flex:1">
+        <button id="btnRssAdd">测试并添加</button>
+      </div>
+      <div class="footer-note">普通订阅源（无需走 RSSHub 的）用此通道：程序先实测解析（确认是可解析的订阅且有条目）再入库，默认停用，启用后参与检索。</div>
+      <div id="rssAddMsg" style="font-size:12.5px;margin-top:4px"></div>
     </div>
-    <div class="footer-note">普通订阅源（无需走 RSSHub 的）用此通道：程序先实测解析（确认是可解析的订阅且有条目）再入库，默认停用，启用后参与检索。</div>
-    <div id="rssAddMsg" style="font-size:12.5px;margin-top:4px"></div>
-  </div>
-  <div class="card" id="aiAddCard" style="display:none">   <!-- v2.21.2 全宽卡：AI 添加/搜索引擎抓取双列并排，不再上下堆两行 -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start">
-      <section>
-        <h3>AI 添加信源（存入自定义信源组）</h3>
-        <div style="display:flex;gap:10px;margin-top:8px">
-          <input type="text" id="aiAddUrl" placeholder="输入机构官网网址，如 https://www.bis.org" style="flex:1">
-          <button id="btnAiAdd">AI 分析并添加</button>
-        </div>
-        <div class="footer-note">AI 自动探测站点生成采集配置；失败自动停用并注明原因，复杂站点建议开代理。</div>
-      </section>
-      <section style="border-left:1px solid var(--line);padding-left:24px;min-width:0">
+    <div class="card half-card" id="aiAddCard" style="display:none;margin-bottom:0">
+      <h3>AI 添加信源（存入自定义信源组）</h3>
+      <div style="display:flex;gap:10px;margin-top:8px">
+        <input type="text" id="aiAddUrl" placeholder="输入机构官网网址，如 https://www.bis.org" style="flex:1">
+        <button id="btnAiAdd">AI 分析并添加</button>
+      </div>
+      <div class="footer-note">AI 自动探测站点生成采集配置；失败自动停用并注明原因，复杂站点建议开代理。</div>
+      <div style="border-top:1px solid var(--line);margin-top:10px;padding-top:8px">
         <h3>AI 搜索引擎抓取（官网加不进来时的兜底方案）</h3>
         <div style="display:flex;gap:10px;margin-top:8px;flex-wrap:wrap">
           <input type="text" id="searchKw" placeholder="输入机构名或关键词，多个用顿号或逗号分隔，如：Financial Stability Board、IMF"
-                 style="flex:1;min-width:220px">
-          <select id="searchEngine" style="width:130px">
+                 style="flex:1;min-width:180px">
+          <select id="searchEngine" style="width:118px">
             <option value="auto">引擎：自动</option>
             <option value="google">谷歌</option>
             <option value="ddg">DuckDuckGo</option>
             <option value="bing">必应</option>
             <option value="baidu">百度</option>
           </select>
-          <button id="btnSearchClue">🔍 AI 搜索抓取线索</button>
         </div>
+        <div style="display:flex;margin-top:8px"><button id="btnSearchClue">🔍 AI 搜索抓取线索</button><span style="flex:1"></span></div>
         <div class="footer-note">自动顺序 谷歌→DuckDuckGo→必应→百度（失败自动切换）；抓回符合条件的线索自动入库，进度见任务中心。</div>
-      </section>
+      </div>
     </div>
   </div>
   </div><!-- /src-cards -->
@@ -4428,6 +4426,7 @@ async function loadSources(){
   }
   $("#aiAddCard").style.display = srcTab === "custom" ? "" : "none";
   const rc = $("#rssAddCard"); if(rc) rc.style.display = srcTab === "custom" ? "" : "none";
+  const col = $("#srcAddCol"); if(col) col.style.display = srcTab === "custom" ? "" : "none";   // v2.21.3 右列随页签收起
   $("#rsshubCard").style.display = srcTab === "custom" ? "" : "none";   // v2.13.1：两子模块同页并排
   syncRsshubCard();
   const tb = $("#srcRows"); tb.innerHTML="";
@@ -5115,7 +5114,7 @@ $("#btnRssAdd").onclick = async () => {
   try {
     const r = await api("/api/sources/add_rss", {method:"POST", body:JSON.stringify({url: u})});
     if(r.ok){
-      $("#rssAddMsg").textContent = `✓ 已添加「${r.name}」（实测 ${r.items} 条），默认停用——打开「启用」即参与检索`;
+      $("#rssAddMsg").textContent = `✓ 已添加「${r.name_cn}」（实测 ${r.items} 条），默认停用——打开「启用」即参与检索`;   // v2.21.3 修复 undefined：返回字段是 name_cn
       $("#rssAddUrl").value = "";
       loadSources();
     } else {

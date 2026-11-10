@@ -1342,47 +1342,21 @@ def api_sources_add_rss(req: RssDirectReq):
     解决 investing.com 等 WAF 站点对程序 UA 的 403；粘贴 GitHub 仓库/网页地址时给出可执行的指引。"""
     import re as _re
     import feedparser as _fp
-    import httpx as _h
+    from app.fetcher.direct_rss import fetch_bytes as _fb
     url = (req.url or "").strip()
     if not url.startswith("http"):
         return {"ok": False, "error": "请粘贴完整的 RSS 订阅地址（https://…/feed 等）"}
+    if url.lower().startswith("http://github.com/") or url.lower().startswith("https://github.com/"):
+        return {"ok": False, "error": "这是 GitHub 仓库/网页链接而不是订阅源："
+                "请从仓库说明里把具体的 RSS 地址（.xml / /feed 结尾）粘贴进来再加"}
     ssett = db.all_settings()
     proxy = None
     if ssett.get("proxy_enabled") == "1" and ssett.get("proxy_url"):
         proxy = ssett["proxy_url"]
-    uas = [
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
-        "(KHTML, like Gecko) Version/17.4 Safari/605.1.15",
-    ]
-    accepts = {
-        "Accept": "application/rss+xml, application/atom+xml, application/xml;q=0.9, "
-                  "text/xml;q=0.8, */*;q=0.7",
-        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.6",
-    }
-    last_err = ""
-
-    def _attempt(target, ua, use_proxy):
-        try:
-            with _h.Client(timeout=14, verify=False, follow_redirects=True,
-                           proxy=use_proxy if use_proxy else None,
-                           headers={"User-Agent": ua, **accepts}) as cli:
-                resp = cli.get(target)
-                resp.raise_for_status()
-                return resp.content, None
-        except Exception as e:
-            return None, f"{type(e).__name__}: {str(e)[:100]}"
 
     def _fetch_any(target):
-        """多路重试：直连×2 UA → 配置代理×2 UA → 本机常见代理端口兜底×2 UA；返回 (raw|None, err)。"""
-        raw = err = None
-        for use_proxy in [None] + [p for p in (proxy, "http://127.0.0.1:7897") if p]:
-            for ua in uas:
-                raw, err = _attempt(target, ua, use_proxy)
-                if raw:
-                    return raw, None
-        return raw, err or "全部尝试失败"
+        """公共浏览器指纹拉取器（v2.21.3，采集/测试/添加三处共用策略）。"""
+        return _fb(target, 14, proxy)
 
     raw, err = _fetch_any(url)
     if raw is None:

@@ -48,17 +48,12 @@ def fetch_rss(rss_url: str, timeout: int = 20, window_days: int = 7,
 
     items: [{title, url, published_at, summary}]，仅保留最近 window_days 天。
     """
-    try:
-        with httpx.Client(
-            timeout=timeout, verify=False, follow_redirects=True,
-            proxy=proxy if proxy else None,
-            headers={"User-Agent": UA},
-        ) as client:
-            resp = client.get(rss_url)
-            resp.raise_for_status()
-            raw = resp.content
-    except httpx.HTTPError as e:
-        return [], f"下载失败: {type(e).__name__}: {e}"
+    # v2.21.3 直连拉取改走 direct_rss 浏览器指纹多路重试（含本机代理兜底），
+    # 采集/添加/连通测试同口径——WAF 站点（investing.com 等）直连 403 经代理即通。
+    from app.fetcher.direct_rss import fetch_bytes as _fb
+    raw, err = _fb(rss_url, timeout, proxy)
+    if raw is None:
+        return [], f"下载失败: {err}"
 
     parsed = feedparser.parse(raw)
     if parsed.bozo and not parsed.entries:
