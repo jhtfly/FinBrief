@@ -1,6 +1,12 @@
-"""AI 筛选：按六项金融稳定筛选要求批量判定，并同步输出评分维度。"""
+"""AI 筛选：按六项金融稳定筛选要求批量判定，并同步输出评分维度。
+
+v2.21 批次并发：多批次并行调用（并发数=设置 ai_concurrency）；推理型模型
+思考占满首试的情况由 max_tokens 初值 8000 规避（此前 4000 首试常失败、
+再翻倍重试，一批白等十几秒——用户报"筛选慢"的根因）。"""
 import json
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 from app import db
 from app.ai import client
@@ -118,68 +124,95 @@ def screen_items(item_ids: list, batch_size: int = 8, progress_cb=None,
     if not items:
         return {"ok": 0, "match": 0, "error": "没有待筛选的线索"}
 
+    # ===== v2.21 并发批筛选：多批并行调用（并发数=ai_concurrency），打断可回滚 =====
+    batches = [items[i:i + batch_size] for i in range(0, len(items), batch_size)]
+    try:
+        workers = max(1, min(6, int(settings.get("ai_concurrency", "2"))))
+    except (TypeError, ValueError):
+        workers = 2
     done = matched = 0
     error = None
     screened_ids = []   # 本轮写入判定的线索（打断回滚用）
-    try:
-        for i in range(0, len(items), batch_size):
-            if should_cancel and should_cancel():
-                raise TaskCancelled("任务已被用户打断")
-            batch = items[i:i + batch_size]
-            lines = []
-            for n, it in enumerate(batch, 1):
-                summary = (it.get("summary") or "")[:400]
-                pub = (it.get("published_at") or "日期未知")[:10]
-                lines.append(
-                    f"编号{n}｜来源机构：{it['source_name_en']}（{it['source_name_cn']}）｜"
-                    f"发布时间：{pub}\n标题：{it['title']}\n摘要：{summary or '（无摘要，请依据标题与机构性质判断）'}")
-            messages = [
-                {"role": "system", "content": _system_prompt()},
-                {"role": "user", "content": "待筛选线索：\n\n" + "\n\n".join(lines)},
-            ]
-            try:
-                data = client.chat_json(messages, model, temperature=0.1, max_tokens=4000)
-                results = data.get("results", [])
-                by_id = {}
-                for r_ in results:
-                    try:
-                        by_id[int(r_.get("id"))] = r_
-                    except (TypeError, ValueError):
-                        continue
-                for n, it in enumerate(batch, 1):
-                    r_ = by_id.get(n)
-                    if r_ is None:
-                        continue
-                    is_match = bool(r_.get("is_match"))
-                    criteria = [c for c in (r_.get("criteria") or [])
-                                if isinstance(c, int) and 1 <= c <= 6]
-                    # 评分：AI 三维度 + 系统时效分 → 按权重合成总分
-                    scores = r_.get("scores") or {}
-                    detail = {
-                        "relevance": scores.get("relevance"),
-                        "timeliness": _timeliness(it.get("published_at")),
-                        "authority": scores.get("authority"),
-                        "completeness": scores.get("completeness"),
-                    }
-                    final = _final_score(detail)
-                    db.upsert_screening(
-                        it["id"], is_match, criteria,
-                        (r_.get("match_points") or "")[:300],
-                        (r_.get("reason") or "")[:400], model,
-                        score=final, score_detail=detail)
-                    screened_ids.append(it["id"])
-                    done += 1
-                    if is_match:
-                        matched += 1
-            except TaskCancelled:
-                raise
-            except client.AIError as e:
+    cancelRequested = [False]
+    lock = threading.Lock()
+
+    def _screen_batch(batch):
+        """单批筛选（线程内执行）；返回 (ok_n, match_n)。AIError 记日志返回 0。"""
+        nonlocal error
+        if should_cancel and should_cancel():
+            cancelRequested[0] = True
+            return 0, 0
+        lines = []
+        for n, it in enumerate(batch, 1):
+            summary = (it.get("summary") or "")[:400]
+            pub = (it.get("published_at") or "日期未知")[:10]
+            lines.append(
+                f"编号{n}｜来源机构：{it['source_name_en']}（{it['source_name_cn']}）｜"
+                f"发布时间：{pub}\n标题：{it['title']}\n摘要：{summary or '（无摘要，请依据标题与机构性质判断）'}")
+        messages = [
+            {"role": "system", "content": _system_prompt()},
+            {"role": "user", "content": "待筛选线索：\n\n" + "\n\n".join(lines)},
+        ]
+        try:
+            data = client.chat_json(messages, model, temperature=0.1, max_tokens=8000)
+        except client.AIError as e:
+            with lock:
                 error = str(e)
-                db.log("screen", f"筛选批次失败（{batch[0]['source_name_cn']} 等 {len(batch)} 条）: {e}", "error")
-                continue  # 该批失败，继续下一批
-            if progress_cb:
-                progress_cb(done, len(items), matched)
-            time.sleep(1)  # 温和限速
+            db.log("screen", f"筛选批次失败（{batch[0]['source_name_cn']} 等 {len(batch)} 条）: {e}", "error")
+            return 0, 0
+        results = data.get("results", [])
+        by_id = {}
+        for r_ in results:
+            try:
+                by_id[int(r_.get("id"))] = r_
+            except (TypeError, ValueError):
+                continue
+        ok_n = match_n = 0
+        local_ids = []
+        for n, it in enumerate(batch, 1):
+            r_ = by_id.get(n)
+            if r_ is None:
+                continue
+            is_match = bool(r_.get("is_match"))
+            criteria = [c for c in (r_.get("criteria") or [])
+                        if isinstance(c, int) and 1 <= c <= 6]
+            # 评分：AI 三维度 + 系统时效分 → 按权重合成总分
+            scores = r_.get("scores") or {}
+            detail = {
+                "relevance": scores.get("relevance"),
+                "timeliness": _timeliness(it.get("published_at")),
+                "authority": scores.get("authority"),
+                "completeness": scores.get("completeness"),
+            }
+            final = _final_score(detail)
+            db.upsert_screening(
+                it["id"], is_match, criteria,
+                (r_.get("match_points") or "")[:300],
+                (r_.get("reason") or "")[:400], model,
+                score=final, score_detail=detail)
+            local_ids.append(it["id"])
+            ok_n += 1
+            if is_match:
+                match_n += 1
+        with lock:
+            screened_ids.extend(local_ids)
+        return ok_n, match_n
+
+    try:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futs = [pool.submit(_screen_batch, b) for b in batches]
+            for fut in futs:
+                ok_n, match_n = fut.result()
+                with lock:
+                    done += ok_n
+                    matched += match_n
+                if progress_cb:
+                    try:
+                        progress_cb(done, len(items), matched)
+                    except Exception:
+                        pass
+        if cancelRequested[0]:
+            raise TaskCancelled("任务已被用户打断")
     except TaskCancelled:
         db.delete_screenings(screened_ids)
         db.log("screen", f"筛选任务被打断：已回滚本轮 {len(screened_ids)} 条判定", "warn")

@@ -27,7 +27,8 @@ GROUPS = {
     "supplement": "ai",   # v2.13.3 弃编译线索补材料重编
     "ai_classify": "ai",  # v2.13.4 数据库一键 AI 智能分类
     "ai_search_local": "ai",   # v2.15.0 线索面板 AI 检索改后台任务（原同步等待 10-40s 无感知）
-    "rsshub_upgrade": "net",   # v2.13.4 RSSHub dist 自动下载更新（下载型）
+    "rsshub_upgrade": "net",   # v2.21 RSSHub 整包升级（Releases 下载运行包替换，v2.13.4 的 npm dist 链路已失效）
+    "rsshub_heal": "net",  # v2.21 路由规则体检：失效 RSSHub 路由自动迁移可用实例
 }
 GUARANTEE_ONE = {"fetch": 1, "net": 1}   # 组内固定 1 并发（站点级并发在 run_fetch 内部）
 
@@ -222,6 +223,35 @@ def run_in_background(stage, fn, *args, label=""):
     if info["status"] == "started":
         return True, "已启动"
     return True, f"同类任务并发已满，已自动排队（第 {info['position']} 位）"
+
+
+def group_busy(stage_or_grp: str) -> int:
+    """某组（或某 stage）当前 running+queued 的任务数（调度防重复提交用）。"""
+    with _lock:
+        grp = GROUPS.get(stage_or_grp, stage_or_grp)
+        n = sum(1 for t in _running_ids if _records[t]["group"] == grp)
+        n += sum(1 for t in _queued_ids if _records[t]["group"] == grp)
+        return n
+
+
+def clear_queue(grp: str | None = None) -> int:
+    """清空排队（可限定并发组）。返回清除数。"""
+    n = 0
+    with _lock:
+        for tid in list(_queued_ids):
+            rec = _records.get(tid)
+            if not rec:
+                continue
+            if grp and rec["group"] != grp:
+                continue
+            _queued_ids.remove(tid)
+            _fns.pop(tid, None)
+            rec["status"] = "cancelled"
+            rec["progress"] = "已取消（清空排队）"
+            rec["finished_at"] = db.now_iso()
+            _db_upsert(rec)
+            n += 1
+    return n
 
 
 def task_snapshot():

@@ -22,7 +22,7 @@ a = Analysis(
     datas=datas + [
         ("web", "web"),
         ("app/fetcher/sources.yaml", "app/fetcher"),
-        ("DEVELOPMENT.md", "."),
+        ("docs/DEVELOPMENT.md", "."),   # v2.21 起文档在 docs/，打包后仍在 _internal 根
         ("README.md", "."),
     ],
     hiddenimports=hiddenimports,

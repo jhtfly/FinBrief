@@ -172,3 +172,83 @@ def add_feed_url(raw, name_cn=None):
             "tried": [{"base": bb, "ok": rr["ok"], "items": rr["items"],
                        "seconds": rr["seconds"], "error": (rr["error"] or "")[:80]}
                       for bb, rr in results]}
+
+
+# ---------------- v2.21 路由规则体检：失效路由自动迁移可用实例 ----------------
+# 用户真实需求：上游网站格式变化后，本地内置（或某实例）路由代码过期——
+# 把该路由的"订阅地址"迁移到仍在正常输出该路由的实例上，等于完成一次
+# 无需整包部署的"路由规则更新"。
+
+_RSSHUB_HOST_RE = re.compile(
+    r"^(https?://)?(127\.0\.0\.1|localhost|rsshub\.app|rsshub\.rssforever\.com"
+    r"|rsshub\.rss\.tips|rsshub\.ktachibana\.party)(:\d+)?(/|$)", re.I)
+
+
+def is_rsshub_route_url(url: str) -> bool:
+    """识别 RSSHub 路由订阅地址（主机在已知实例名单里）。"""
+    return bool(_RSSHUB_HOST_RE.match((url or "").strip()))
+
+
+def _candidate_bases(orig_base: str) -> list:
+    ordered = [b for b in (orig_base, get_base()) if b]
+    ordered += [LOCAL_BASE] if local_base_ready() else []
+    ordered += list(FALLBACK_BASES)
+    uniq = []
+    for b in ordered:
+        b = (b or "").strip().rstrip("/")
+        if b and b not in uniq:
+            uniq.append(b)
+    return uniq
+
+
+def route_heal(progress_cb=None, should_cancel=None, timeout=9) -> dict:
+    _re = re
+    """路由规则体检：逐源探测 RSSHub 路由；失败者在多实例并行试连，
+    用仍能输出同一路由的实例替换其订阅地址（写库 + 备注迁移痕迹）。
+    返回 {total, ok, migrated:[{key,name,old,new}], failed:[{name,error}]}。"""
+    import os as _os
+    srcs = [s for s in db.list_sources()
+            if s.get("mode") == "rss" and (s.get("config") or {}).get("rss_url")
+            and is_rsshub_route_url(s["config"]["rss_url"])]
+    migrated, failed = [], []
+    total = len(srcs)
+    for i, s_ in enumerate(srcs, 1):
+        if should_cancel and should_cancel():
+            raise RuntimeError("路由体检已打断")
+        if progress_cb:
+            try:
+                progress_cb(i, total, s_["name_cn"])
+            except Exception:
+                pass
+        url = s_["config"]["rss_url"]
+        m = _re.match(r"^(https?://[^/]+)(/.+)$", url, _re.I)
+        orig_base, path = (m.group(1), m.group(2)) if m else ("", "/")
+        first = probe_url(url, timeout=timeout)
+        if first["ok"]:
+            continue
+        # 本址失效：逐候选并行试连
+        cands = [b for b in _candidate_bases(orig_base) if b != orig_base]
+        results = []
+        if cands:
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=min(5, len(cands))) as ex:
+                results = list(ex.map(lambda b: (b, probe_url(b + path, timeout)), cands))
+        win = next(((b, r) for b, r in results if r["ok"]), None)
+        if not win:
+            err = next(((r.get("error") or "试连失败") for _, r in results), "无可用实例")
+            failed.append({"name": s_["name_cn"], "key": s_["key"],
+                           "error": str(err)[:110]})
+            db.log("rsshub", f"[路由体检] {s_['name_cn']} 各实例试连均失败：{str(err)[:90]}", "warn")
+            continue
+        b, r = win
+        new_url = b + path
+        note = (s_.get("note") or "")
+        tag = f"v2.21 路由迁移 {db.now_iso()[:10]}（原实例 {orig_base.replace('http://', '').replace('https://', '')} 失效）"
+        if tag[:24] not in note:
+            note = (note + "；" + tag).strip("；")
+        db.update_source_config(s_["key"], {"rss_url": new_url}, note=note[:300])
+        migrated.append({"key": s_["key"], "name": s_["name_cn"],
+                         "old": url, "new": new_url, "items": r["items"]})
+        db.log("rsshub", f"[路由体检] {s_['name_cn']} 已迁移：{url} → {new_url}"
+                         f"（正常 {r['items']} 条）")
+    return {"total": total, "migrated": migrated, "failed": failed}

@@ -35,7 +35,7 @@ from app.fetcher import runner
 from app.paths import WEB_DIR
 
 
-from app.tasks import run_in_background, task_snapshot, cancel_task, interrupt_task
+from app.tasks import run_in_background, task_snapshot, cancel_task, interrupt_task, clear_queue
 
 
 app = FastAPI(title="金融热点编译系统")
@@ -692,6 +692,15 @@ def api_task_cancel(tid: str):
     return {"ok": ok, "message": "已取消排队" if ok else "任务不在排队中（可能已开始）"}
 
 
+@app.post("/api/task/queue/clear")
+def api_task_queue_clear(req: dict = None):
+    """v2.21 一键清空排队（间隔检索风暴/误攒任务时用）。body 可选 {group:"fetch"}。"""
+    grp = (req or {}).get("group")
+    n = clear_queue(grp)
+    return {"ok": True, "cleared": n,
+            "message": f"已清空排队 {n} 个" + (f"（{grp} 组）" if grp else "")}
+
+
 @app.delete("/api/task/{tid}")
 def api_task_delete(tid: str):
     n = db.delete_task_run(tid)
@@ -1056,20 +1065,44 @@ def _fallback_name(rss_url: str) -> str:
 
 class SourceCommon(BaseModel):
     in_common: bool
+    category: str = ""   # v2.21 加入精选时可指定分类（拼接 SemanticClick 语义与分组展示）
 
 
 @app.post("/api/sources/{key}/common")
 def api_source_common(key: str, req: SourceCommon):
-    """加入/移出常用信源。加入时自动启用；移出时自动停用。"""
+    """加入/移出精选信源。加入时自动启用，可选指定分类（v2.21 分组展示）。"""
     src = db.get_source(key)
     if not src:
         return JSONResponse({"error": "not found"}, status_code=404)
     if req.in_common:
-        db.update_source_flags(key, in_common=1, enabled=1)
-        db.log("sources", f"[{src['name_cn']}] 已加入常用信源")
+        fields = {"in_common": 1, "enabled": 1}
+        cat = (req.category or "").strip()
+        if cat:
+            fields["category"] = cat[:20]
+        db.update_source_flags(key, **fields)
+        db.log("sources", f"[{src['name_cn']}] 已加入精选信源"
+                          + (f"（分类：{cat}）" if cat else ""))
     else:
         db.update_source_flags(key, in_common=0, enabled=0)
-        db.log("sources", f"[{src['name_cn']}] 已移出常用信源")
+        db.log("sources", f"[{src['name_cn']}] 已移出精选信源")
+    return {"ok": True}
+
+
+class SourceCategory(BaseModel):
+    category: str
+
+
+@app.post("/api/sources/{key}/category")
+def api_source_category(key: str, req: SourceCategory):
+    """v2.21 修改精选信源分类（分组展示/检索均可按分类）。"""
+    cat = (req.category or "").strip()
+    if not cat:
+        return JSONResponse({"error": "分类为空"}, status_code=400)
+    src = db.get_source(key)
+    if not src:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    db.update_source_flags(key, category=cat[:20])
+    db.log("sources", f"[{src['name_cn']}] 分类改为：{cat}")
     return {"ok": True}
 
 
@@ -1192,6 +1225,68 @@ class RsshubAddUrlReq(BaseModel):
     name_cn: str = ""
 
 
+
+
+class RssDirectReq(BaseModel):
+    url: str
+
+
+@app.post("/api/sources/add_rss")
+def api_sources_add_rss(req: RssDirectReq):
+    """v2.21 直连 RSS 订阅源一键添加：拉取实测（feedparser 解析成功且有条目才入库）。
+    与 RSSHub 路由无关的普通订阅源（如 WordPress 站点 /feed/）用此通道。"""
+    import feedparser as _fp
+    import httpx as _h
+    url = (req.url or "").strip()
+    if not url.startswith("http"):
+        return {"ok": False, "error": "请粘贴完整的 RSS 订阅地址（https://…/feed 等）"}
+    ssett = db.all_settings()
+    proxy = None
+    if ssett.get("proxy_enabled") == "1" and ssett.get("proxy_url"):
+        proxy = ssett["proxy_url"]
+    try:
+        with _h.Client(timeout=15, verify=False, follow_redirects=True,
+                       proxy=proxy if proxy else None,
+                       headers={"User-Agent": "Mozilla/5.0 (compatible; FinBrief/1.0)"}) as cli:
+            resp = cli.get(url)
+            resp.raise_for_status()
+        raw = resp.content
+    except Exception as e:
+        return {"ok": False, "error": f"下载失败：{type(e).__name__}: {str(e)[:110]}"}
+    head_l = raw[:600].lstrip().lower()
+    if not (head_l.startswith(b"<?xml") or b"<feed" in head_l or b"<rss" in head_l):
+        return {"ok": False, "error": "该地址返回的不是 RSS/Atom 订阅内容（可先在浏览器确认）"}
+    fp = _fp.parse(raw)
+    if fp.bozo and not fp.entries:
+        return {"ok": False, "error": f"解析失败：{getattr(fp, 'bozo_exception', '未知')}"}
+    if not fp.entries:
+        return {"ok": False, "error": "订阅可访问但暂无条目（可在添加后观察更新）"}
+    title = ""
+    if getattr(fp, "feed", None):
+        title = (getattr(fp.feed, "title", "") or "")
+    title = title.strip() or url.split("//", 1)[-1][:40]
+    sample = [{"title": (getattr(e, "title", "") or "")[:60]} for e in fp.entries[:5]]
+    key = "rss_" + url.split("://", 1)[-1]
+    key = key.split("?")[0].rstrip("/")
+    key = "".join(ch if (ch.isalnum() or ch in "_.-") else "_" for ch in key).strip("_")[:52]
+    if not key or len(key) < 6:
+        key = "rss_custom_" + key
+    src = {"key": key,
+           "name_cn": title[:32],
+           "name_en": "(RSS)",
+           "category": "media",
+           "mode": "rss",
+           "config": {"rss_url": url, "direct": 1},
+           "enabled": 0,
+           "note": "RSS 订阅直连",
+           "src_group": "custom",
+           "in_common": 0}
+    db.upsert_source(src)
+    db.log("sources", f"直连 RSS 添加信源《{title[:32]}》：{url[:90]}")
+    return {"ok": True, "key": key, "name_cn": title[:32], "items": len(fp.entries),
+            "sample": sample}
+
+
 @app.post("/api/rsshub/add_url")
 def api_rsshub_add_url(req: RsshubAddUrlReq):
     """粘贴订阅链接一键测试添加：并行试连多实例，成功才入库（默认停用）。"""
@@ -1302,105 +1397,145 @@ def api_rsshub_check_update():
 
 
 def _job_rsshub_upgrade(state):
-    """v2.13.4 RSSHub 自动升级：npm 镜像拉最新预构建 dist 替换内置包 + 失败自动回滚。"""
+    """v2.21 RSSHub 整包升级：从仓库 Releases 下载 rsshub_bundle_*.zip 运行包，
+    整目录替换本机内置 rsshub 并重启服务（失败自动回滚）。
+
+    背景：npm dist 通道已失效（新版官方包不再附带可运行 dist），而用户的真实
+    需求是“上游网站格式变化后，本地路由规则也要随之更新”——整包换新即得到
+    最新路由集合；单条路由临时失效则用「路由规则体检」迁移到可用实例兜底。"""
     import httpx as _h
     import time as _time
-    import io as _io
+    import json as _js
+    import os as _os
     import shutil as _sh
-    import tarfile as _tf
-    import tempfile as _tmpf
+    import tempfile as _tmpd
+    import zipfile as _zf
     import main as _main
     st = _main.rsshub_service_status()
     if not st.get("bundled"):
-        db.log("rsshub", "[RSSHub] 升级失败：未捆绑内置 RSSHub", "warn")
+        db.log("rsshub", "[RSSHub] 整包升级失败：未捆绑内置 RSSHub", "warn")
         return {"ok": False, "reason": "未捆绑内置 RSSHub"}
-    dist_dir = os.path.join(st["dir"], "dist")
-    state.update("查询 RSSHub 最新版本（npmmirror / npm）…")
-    ver = None
-    for reg in ("https://registry.npmmirror.com", "https://registry.npmjs.org"):
-        try:
-            r = _h.get(f"{reg}/rsshub/latest", timeout=15, follow_redirects=True)
+    rsshub_dir = st["dir"]
+
+    ssett = db.all_settings()
+    proxy = None
+    if ssett.get("proxy_enabled") == "1" and ssett.get("proxy_url"):
+        proxy = ssett["proxy_url"]
+    client_kw = {"timeout": 30, "verify": False, "follow_redirects": True,
+                 "headers": {"User-Agent": "FinBrief"}}
+    if proxy:
+        client_kw["proxy"] = proxy
+
+    state.update("查询仓库最新 Release 及 rsshub_bundle 资产…")
+    asset = None
+    try:
+        with _h.Client(**client_kw) as cli:
+            r = cli.get("https://api.github.com/repos/jhtfly/FinBrief/releases/latest")
             if r.status_code == 200:
-                ver = r.json().get("version")
-                if ver:
-                    break
-        except _h.HTTPError:
-            continue
-    if not ver:
-        db.log("rsshub", "[RSSHub] 升级失败：查询最新版本失败（npmmirror/npm 均不可达）", "warn")
-        return {"ok": False, "reason": "查询最新版本失败（两个镜像均不可达）"}
-    state.update(f"最新版 rsshub@{ver}，正在下载安装包…")
-    tarbuf = None
-    for reg in ("https://registry.npmmirror.com", "https://registry.npmjs.org"):
+                rel = r.json()
+                for a in rel.get("assets") or []:
+                    nm = (a.get("name") or "").lower()
+                    if nm.startswith("rsshub_bundle") and nm.endswith(".zip"):
+                        asset = a
+                        break
+    except Exception as e:
+        return {"ok": False,
+                "reason": f"查询 Releases 失败（网络/代理原因）：{type(e).__name__}: {str(e)[:90]}"}
+    if asset is None:
+        msg = ("当前 Releases 尚未提供 rsshub_bundle_*.zip 整包升级资产"
+               "（整包升级资产将随下次发版提供）。个别路由暂时失效时，"
+               "可先用「路由规则体检」把该源迁移到可用实例。")
+        db.log("rsshub", "[RSSHub] 整包升级中止：" + msg, "warn")
+        return {"ok": False, "reason": msg}
+
+    name = asset.get("name")
+    size = int(asset.get("size") or 0)
+    url = asset.get("browser_download_url") or ""
+    if size < 50 * 1024 * 1024:
+        return {"ok": False, "reason": f"资产 {name} 体积异常（{size} 字节），中止"}
+    state.update(f"下载整包 {name}（约 {size // 1048576}MB，可能需数分钟）…")
+    tmp_zip = _os.path.join(_tmpd.gettempdir(), "finbrief_rsshub_upgrade.zip")
+    try:
+        with _h.Client(**{**client_kw, "timeout": 1800}) as cli:
+            with cli.stream("GET", url) as resp:
+                resp.raise_for_status()
+                got = 0
+                with open(tmp_zip, "wb") as f:
+                    for chunk in resp.iter_bytes(1024 * 256):
+                        f.write(chunk)
+                        got += len(chunk)
+                        if got % (8 * 1024 * 1024) < 262144:
+                            state.update(f"下载中 {got // 1048576}/{size // 1048576} MB…")
+    except Exception as e:
         try:
-            # npmmirror 的 tgz 地址会 302 到 CDN，必须跟随重定向
-            r = _h.get(f"{reg}/rsshub/-/rsshub-{ver}.tgz", timeout=180, follow_redirects=True)
-            if r.status_code == 200 and len(r.content) > 1000:
-                tarbuf = _io.BytesIO(r.content)
-                break
-        except _h.HTTPError:
-            continue
-    if not tarbuf:
-        db.log("rsshub", f"[RSSHub] 升级失败：下载 rsshub@{ver} 安装包失败（两镜像不可达/超时，宿主网络异常时也常见）", "warn")
-        return {"ok": False, "reason": f"下载 rsshub@{ver} 安装包失败（镜像均超时）"}
-    bak = dist_dir + ".bak"
-    with _tmpf.TemporaryDirectory() as td:
-        try:
-            with _tf.open(fileobj=tarbuf, mode="r|gz") as tf:
-                got = False
-                top = set()   # 包内顶层条目（诊断用）
-                for m in tf:
-                    norm = os.path.normpath(m.name).replace("\\", "/")
-                    if norm.startswith("../"):
-                        raise ValueError("安装包路径异常")
-                    parts = norm.split("/")
-                    if len(parts) >= 2 and parts[0] == "package" and parts[1]:
-                        top.add(parts[1] + ("/" if m.isdir() else ""))
-                    if m.name != "package/dist" and not m.name.startswith("package/dist/"):
-                        continue
-                    tf.extract(m, td)
-                    got = True
-                if not got:
-                    # v2.19：新版官方 npm 包已不再附带可运行的服务端构建（dist），
-                    # 只有 dist-lib 等 SDK 结构——如实告知，而不是笼统报"失败"
-                    struct = "、".join(sorted(top)[:8]) or "（空包）"
-                    msg = (f"rsshub@{ver} 安装包内没有预构建服务器（包内顶层：{struct}）。"
-                           "新版官方 npm 包已不再附带可运行的 dist 服务端，自动升级无法继续；"
-                           "内置当前版本不受影响，可正常使用。")
-                    db.log("rsshub", "[RSSHub] 升级中止：" + msg, "warn")
-                    return {"ok": False, "reason": msg}
-        except (RuntimeError, ValueError) as e:
-            return {"ok": False, "reason": f"解包失败：{e}"}
-        new_dist = os.path.join(td, "package", "dist")
-        if not os.path.isfile(os.path.join(new_dist, "index.mjs")):
-            return {"ok": False, "reason": "安装包 dist 缺少服务端入口 index.mjs（中断，未做任何改动）"}
-        # 停子进程 + 备份/替换
-        try:
-            if _main._RSSHUB_PROC:
-                _main._RSSHUB_PROC.kill()
-                _main._RSSHUB_PROC = None
-        except (OSError, AttributeError):
-            pass
-        if os.path.exists(bak):
-            shutil.rmtree(bak, ignore_errors=True)
-        if os.path.exists(dist_dir):
-            os.rename(dist_dir, bak)
-        try:
-            shutil.move(new_dist, dist_dir)
-        except Exception as e:
-            if os.path.exists(bak):
-                os.rename(bak, dist_dir)
-            return {"ok": False, "reason": f"替换 dist 失败（已还原旧版）：{e}"}
-        try:
-            with open(os.path.join(st["dir"], "_ver.json"), "w", encoding="utf-8") as f:
-                json.dump({"version": ver, "source": "npm",
-                           "date": db.now_iso()[:10]}, f)
+            _os.remove(tmp_zip)
         except OSError:
             pass
-        state.update(f"已替换为 rsshub@{ver}，重启内置服务验证中（若失败会自动回滚旧版）…")
-        _main.start_rsshub_async()
+        return {"ok": False, "reason": f"整包下载失败：{type(e).__name__}: {str(e)[:110]}"}
+    if _os.path.getsize(tmp_zip) != size:
+        try:
+            _os.remove(tmp_zip)
+        except OSError:
+            pass
+        return {"ok": False, "reason": f"下载不完整（{name}），已中止（未做改动）"}
+
+    state.update("校验并解包整包…")
+    tmp_dir = _tmpd.mkdtemp(prefix="finbrief_bundle_")
+    try:
+        with _zf.ZipFile(tmp_zip) as zf:
+            for m in zf.namelist():
+                norm = _os.path.normpath(m).replace(os.sep, "/")
+                if norm.startswith("..") or norm.startswith("/"):
+                    raise ValueError("安装包路径异常")
+            zf.extractall(tmp_dir)
+    except Exception as e:
+        _sh.rmtree(tmp_dir, ignore_errors=True)
+        try:
+            _os.remove(tmp_zip)
+        except OSError:
+            pass
+        return {"ok": False, "reason": f"解包失败：{e}"}
+    # 定位包内 rsshub 根（同时具备 node.exe 与 dist/index.mjs 的目录）
+    new_root = None
+    for dp, dns, fns in _os.walk(tmp_dir):
+        if "node.exe" in fns and _os.path.isfile(_os.path.join(dp, "dist", "index.mjs")):
+            new_root = dp
+            break
+    if not new_root:
+        _sh.rmtree(tmp_dir, ignore_errors=True)
+        try:
+            _os.remove(tmp_zip)
+        except OSError:
+            pass
+        return {"ok": False, "reason": "整包内未找到可运行 RSSHub（node.exe + dist/index.mjs），中止"}
+    state.update("停用内置服务并替换整包…")
+    try:
+        if _main._RSSHUB_PROC:
+            _main._RSSHUB_PROC.kill()
+            _main._RSSHUB_PROC = None
+    except (OSError, AttributeError):
+        pass
+    bak = rsshub_dir + ".bak"
+    if _os.path.exists(bak):
+        _sh.rmtree(bak, ignore_errors=True)
+    _os.rename(rsshub_dir, bak)
+    try:
+        _sh.copytree(new_root, rsshub_dir)
+    except Exception as e:
+        if _os.path.exists(rsshub_dir):
+            _sh.rmtree(rsshub_dir, ignore_errors=True)
+        _os.rename(bak, rsshub_dir)
+        return {"ok": False, "reason": f"替换整包失败（已还原旧版）：{e}"}
+    try:
+        with open(_os.path.join(rsshub_dir, "_ver.json"), "w", encoding="utf-8") as f:
+            _js.dump({"version": name, "source": "release_bundle",
+                      "date": db.now_iso()[:10]}, f)
+    except OSError:
+        pass
+    state.update("整包已替换，重启内置服务验证中（失败自动回滚）…")
+    _main.start_rsshub_async()
     alive = False
-    for i in range(20):
+    for i in range(30):
         _time.sleep(3)
         try:
             if _main.rsshub_service_status().get("alive"):
@@ -1408,27 +1543,45 @@ def _job_rsshub_upgrade(state):
                 break
         except Exception:
             pass
-        state.update(f"内置 RSSHub 重启中…（{i+1}/20）")
+        state.update(f"内置 RSSHub 重启中…（{i + 1}/30）")
     if not alive:
-        db.log("rsshub", "[RSSHub] 升级后启动失败，自动回滚旧版 dist")
+        db.log("rsshub", "[RSSHub] 整包升级后启动失败，自动回滚旧版")
         try:
-            if os.path.exists(dist_dir):
-                shutil.rmtree(dist_dir, ignore_errors=True)
-            if os.path.exists(bak):
-                os.rename(bak, dist_dir)
+            if _os.path.exists(rsshub_dir):
+                _sh.rmtree(rsshub_dir, ignore_errors=True)
+            _os.rename(bak, rsshub_dir)
             _main.start_rsshub_async()
         except Exception:
             pass
-        return {"ok": False, "reason": "新版启动失败（依赖有差异），已自动回滚旧版并重启"}
-    shutil.rmtree(bak, ignore_errors=True)
-    db.log("rsshub", f"[RSSHub] 自动升级成功：rsshub@{ver}（npm dist 替换）")
-    return {"ok": True, "version": ver}
+        return {"ok": False, "reason": "新版启动失败，已自动回滚旧版并重启"}
+    _sh.rmtree(bak, ignore_errors=True)
+    _sh.rmtree(tmp_dir, ignore_errors=True)
+    try:
+        _os.remove(tmp_zip)
+    except OSError:
+        pass
+    db.log("rsshub", f"[RSSHub] 整包升级成功：{name}（Releases 运行包替换）")
+    return {"ok": True, "version": name}
 
+
+def _job_rsshub_heal(state):
+    """v2.21 路由规则体检：逐源探测 RSSHub 路由，把失效源迁移到可用实例。"""
+    from app.rsshub import route_heal
+    return route_heal(progress_cb=lambda i, n, cur: state.update(
+        f"体检 RSSHub 信源（{i}/{n}）：{cur}"),
+        should_cancel=state.check)
 
 @app.post("/api/rsshub/upgrade")
 def api_rsshub_upgrade():
     """v2.13.4 一键自动下载并升级内置 RSSHub（后台任务，失败自动回滚）。"""
     ok, msg = run_in_background("rsshub_upgrade", _job_rsshub_upgrade)
+    return {"started": ok, "message": msg}
+
+
+@app.post("/api/rsshub/heal")
+def api_rsshub_heal():
+    """v2.21 路由规则体检：探测全部 RSSHub 信源，失效路由自动迁移可用实例。"""
+    ok, msg = run_in_background("rsshub_heal", _job_rsshub_heal)
     return {"started": ok, "message": msg}
 
 

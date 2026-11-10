@@ -907,18 +907,30 @@ def rename_source(key: str, name: str) -> bool:
 
 
 def update_source_flags(key: str, **fields):
-    """更新信源启停/常用归属。允许字段：enabled, in_common。"""
-    allowed = {"enabled", "in_common"}
+    """更新信源启停/常用归属/分类。允许字段：enabled, in_common（int）、category（字符串）。"""
+    allowed = {"enabled": int, "in_common": int, "category": str}
     sets, params = [], []
     for k, v in fields.items():
         if k in allowed:
             sets.append(f"{k}=?")
-            params.append(int(v))
+            params.append(allowed[k](v))
     if not sets:
         return
     params.append(key)
     with get_conn() as conn:
         conn.execute(f"UPDATE sources SET {', '.join(sets)} WHERE key=?", params)
+
+
+def update_source_config(key: str, config: dict, note: str | None = None):
+    """v2.21 更新信源采集配置（路由迁移/直连订阅等场景）；note 可选追加式由调用方拼好。"""
+    import json as _json
+    with get_conn() as conn:
+        if note is None:
+            conn.execute("UPDATE sources SET config=? WHERE key=?",
+                         (_json.dumps(config, ensure_ascii=False), key))
+        else:
+            conn.execute("UPDATE sources SET config=?, note=? WHERE key=?",
+                         (_json.dumps(config, ensure_ascii=False), note, key))
 
 
 def update_source_fetch_status(key: str, ok: bool, items: int, error: str):

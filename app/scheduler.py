@@ -64,11 +64,33 @@ def _tick():
 
 
 def _run_auto(reason: str):
+    # v2.21 忙碌守卫：fetch 组已有运行中/排队的采集任务时不重复提交
+    #（此前按"上次启动时间"判到期，排队期间一直判到期→每分钟塞一个新任务，
+    #  排队区被搜罗成"间隔检索"长龙；也导致打断响应混乱——用户报"排队一长串"根因）
+    from app import tasks
     from app.fetcher import runner
-    from app.tasks import run_in_background
+
+    if tasks.group_busy("fetch"):
+        db.log("fetch", f"间隔检索跳过：上一轮采集仍在运行/排队（{reason}）")
+        return
+    # 距上次自动提交不足一个间隔也跳过（防快速完成后风暴）
+    try:
+        minutes = max(5, int(db.all_settings().get("auto_fetch_interval_min", "30")))
+    except (TypeError, ValueError):
+        minutes = 30
+    last = db.get_setting("last_auto_submit", "")
+    if last:
+        try:
+            import time as _t
+            prev = _t.mktime(_t.strptime(last, "%Y-%m-%dT%H:%M:%S"))
+            if _t.time() - prev < minutes * 60:
+                return
+        except ValueError:
+            pass
 
     def _job(state):
         return runner.run_fetch(progress_cb=lambda *a: None)
 
+    db.set_setting("last_auto_submit", db.now_iso())
     db.log("fetch", f"自动检索已提交（{reason}）")
-    run_in_background("fetch", _job, label=reason)
+    tasks.run_in_background("fetch", _job, label=reason)

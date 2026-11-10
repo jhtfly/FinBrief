@@ -606,3 +606,172 @@ sources:
     config:
       rss_url: "https://news.google.com/rss/search?q=when:2d+site:reuters.com&hl=en-US&gl=US&ceid=US:en"
     note: 参考信源 · 实测需代理 · 路透官方 RSS 已停用，此为多源聚合替代方案（近2天）
+  # ---------- v2.21 收录：日常实践筛选沉淀的精选补充源 ----------
+  - key: rsshub_rsshub.rssforever.com_cnbc_rss
+    name_cn: CNBC-首页
+    name_en: RSSHub
+    category: media
+    mode: rss
+    config:
+      rss_url: https://rsshub.rssforever.com/cnbc/rss
+    note: RSSHub
+  - key: rsshub_rsshub.ktachibana.party_nikkei_asia
+    name_cn: 日经-asia
+    name_en: RSSHub
+    category: media
+    mode: rss
+    config:
+      rss_url: https://rsshub.ktachibana.party/nikkei/asia
+    note: RSSHub
+  - key: rsshub_rsshub.rssforever.com_gelonghui_home
+    name_cn: 格隆汇·首页动态
+    name_en: RSSHub
+    category: media
+    mode: rss
+    config:
+      rss_url: https://rsshub.rssforever.com/gelonghui/home
+    note: RSSHub
+  - key: rsshub_rsshub.rssforever.com_wallstreetcn_news_global
+    name_cn: 华尔街见闻·全球新闻
+    name_en: RSSHub
+    category: media
+    mode: rss
+    config:
+      rss_url: https://rsshub.rssforever.com/wallstreetcn/news/global
+    note: RSSHub
+  - key: rsshub_rsshub.ktachibana.party_bbc_world-asia
+    name_cn: BBC-国际
+    name_en: RSSHub
+    category: media
+    mode: rss
+    config:
+      rss_url: https://rsshub.ktachibana.party/bbc/world-asia
+    note: RSSHub
+  - key: rsshub_127.0.0.1_1200_barronschina
+    name_cn: 巴伦周刊中文
+    name_en: RSSHub
+    category: media
+    mode: rss
+    config:
+      rss_url: http://127.0.0.1:1200/barronschina
+    note: RSSHub
+  - key: rsshub_127.0.0.1_1200_cspengyuan_research_macroSpecialResear
+    name_cn: 中证鹏元-信用研究
+    name_en: RSSHub
+    category: media
+    mode: rss
+    config:
+      rss_url: http://127.0.0.1:1200/cspengyuan/research/macroSpecialResearch
+    note: RSSHub
+  - key: rsshub_127.0.0.1_1200_moodysmismicrosite_report_企业_金融机构
+    name_cn: 穆迪评级-企业&金融机构
+    name_en: RSSHub
+    category: media
+    mode: rss
+    config:
+      rss_url: http://127.0.0.1:1200/moodysmismicrosite/report/企业&金融机构
+    note: RSSHub
+  - key: rsshub_127.0.0.1_1200_lhratings_research_92
+    name_cn: 联合资信评估-研究报告
+    name_en: RSSHub
+    category: media
+    mode: rss
+    config:
+      rss_url: http://127.0.0.1:1200/lhratings/research/92
+    note: RSSHub
+  - key: rsshub_127.0.0.1_1200_nifd_research_3333d2af-91d6-429b-be83-
+    name_cn: 国家金融与发展实验室
+    name_en: RSSHub
+    category: media
+    mode: rss
+    config:
+      rss_url: http://127.0.0.1:1200/nifd/research/3333d2af-91d6-429b-be83-28b92f31b6d7
+    note: RSSHub
+  - key: rsshub_127.0.0.1_1200_whb_bihui
+    name_cn: 文汇报
+    name_en: RSSHub
+    category: media
+    mode: rss
+    config:
+      rss_url: http://127.0.0.1:1200/whb/bihui
+    note: RSSHub
+  - key: rsshub_127.0.0.1_1200_imf_country-reports_China__People_s_Re
+    name_cn: 国际货币基金组织-中国国别报告
+    name_en: RSSHub
+    category: media
+    mode: rss
+    config:
+      rss_url: http://127.0.0.1:1200/imf/country-reports/China, People's Republic of
+    note: RSSHub
+  - key: rsshub_rsshub.rssforever.com_mckinsey_cn
+    name_cn: 麦肯锡-中国
+    name_en: RSSHub
+    category: media
+    mode: rss
+    config:
+      rss_url: https://rsshub.rssforever.com/mckinsey/cn
+    note: RSSHub
+  - key: rsshub_127.0.0.1_1200_jpmorganchase
+    name_cn: 摩根大通
+    name_en: RSSHub
+    category: media
+    mode: rss
+    config:
+      rss_url: http://127.0.0.1:1200/jpmorganchase
+    note: RSSHub
+  - key: rsshub_127.0.0.1_1200_cnbc_rss
+    name_cn: CNBC-综合
+    name_en: RSSHub
+    category: media
+    mode: rss
+    config:
+      rss_url: http://127.0.0.1:1200/cnbc/rss
+    note: RSSHub
+  - key: rsshub_127.0.0.1_1200_fortunechina
+    name_cn: 财富中文网
+    name_en: RSSHub
+    category: media
+    mode: rss
+    config:
+      rss_url: http://127.0.0.1:1200/fortunechina
+    note: RSSHub
+  - key: rsshub_127.0.0.1_1200_hbr_topic_Leadership_From_20the_20Stor
+    name_cn: 哈佛商业评论
+    name_en: RSSHub
+    category: media
+    mode: rss
+    config:
+      rss_url: http://127.0.0.1:1200/hbr/topic/Leadership/From%20the%20Store
+    note: RSSHub
+  - key: rsshub_rsshub.rss.tips_yahoo_finance_latest-news
+    name_cn: 雅虎财经-最新新闻
+    name_en: RSSHub
+    category: media
+    mode: rss
+    config:
+      rss_url: https://rsshub.rss.tips/yahoo/finance/latest-news
+    note: RSSHub
+  - key: rsshub_127.0.0.1_1200_wto_dispute-settlement
+    name_cn: 世贸组织-争端解决
+    name_en: RSSHub
+    category: media
+    mode: rss
+    config:
+      rss_url: http://127.0.0.1:1200/wto/dispute-settlement
+    note: RSSHub
+  - key: rsshub_127.0.0.1_1200_aflcio_blog
+    name_cn: 美国劳工联合会和产业工会联合会
+    name_en: RSSHub
+    category: media
+    mode: rss
+    config:
+      rss_url: http://127.0.0.1:1200/aflcio/blog
+    note: RSSHub
+  - key: bis
+    name_cn: 巴塞尔银行监管委员会
+    name_en: BCBS / BIS
+    category: cb_reg
+    mode: rss
+    config:
+      rss_url: https://www.bis.org/rss.xml
+    note: AI添加 · RSS探测中该地址有4条可用条目，按要求优先选用RSS方式。
