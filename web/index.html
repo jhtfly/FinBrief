@@ -749,7 +749,7 @@ body.dark .diff-new{background:rgba(13,148,136,.22); color:#5eead4;}
     <div style="display:flex;gap:8px;margin:6px 0 0;flex-wrap:wrap">
       <button class="ghost sm" id="btnRsshubRestart" title="内置 RSSHub 服务偶发出错时，让它重启恢复（约 6-12 秒）">⟳ 重启内置服务</button>
       <button class="ghost sm" id="btnRsshubUpdate" title="检查官方 RSSHub 上游是否有新版本并显示版本对比">⬆ 检查 RSSHub 更新</button>
-      <button class="ghost sm" id="btnRsshubHeal" title="逐源探测 RSSHub 路由：某路由在本机/现实例失效时自动迁移到仍能输出该路由的实例（上游改版后的“路由规则更新”）">🩺 路由规则体检</button>
+      <button class="ghost sm" id="btnRsshubHeal" title="逐源探测 RSSHub 路由：某路由在本机/现实例失效时自动迁移到仍能输出该路由的实例（上游改版后的“路由规则更新”）">🩺 路由规则更新</button>
       <button class="ghost sm" id="btnRsshubUpgrade" title="从本仓库 Releases 下载 rsshub_bundle 整包运行环境，替换本机内置 RSSHub（得到最新路由集合；失败自动回滚）">⤓ 内置整包升级（Releases）</button>   <!-- v2.21 重设计：npm dist 通道已失效 -->
       <button class="ghost sm" id="btnRsshubNaming" title="把列表里仍是英文名的 RSSHub 信源重命名为中文（AI 可用更贴切）">🔤 中文名补齐</button>
     </div>
@@ -780,6 +780,15 @@ body.dark .diff-new{background:rgba(13,148,136,.22); color:#5eead4;}
       </div>
     </div>
   </div>
+  <div class="card half-card" id="rssAddCard" style="display:none">
+    <h3>RSS 订阅源直连添加</h3>
+    <div style="display:flex;gap:10px;margin-top:8px">
+      <input type="text" id="rssAddUrl" placeholder="粘贴 RSS/Atom 订阅地址，如 https://www.bis.org/rss.xml 或站点 /feed/" style="flex:1">
+      <button id="btnRssAdd">测试并添加</button>
+    </div>
+    <div class="footer-note">普通订阅源（无需走 RSSHub 的）用此通道：程序先实测解析（确认是可解析的订阅且有条目）再入库，默认停用，启用后参与检索。</div>
+    <div id="rssAddMsg" style="font-size:12.5px;margin-top:4px"></div>
+  </div>
   <div class="card half-card" id="aiAddCard" style="display:none">
     <h3>AI 添加信源（存入自定义信源组）</h3>
     <div style="display:flex;gap:10px;margin-top:8px">
@@ -806,6 +815,7 @@ body.dark .diff-new{background:rgba(13,148,136,.22); color:#5eead4;}
   </div>
   </div><!-- /src-cards -->
   <div class="footer-note" id="srcGroupNote" style="margin:0 0 8px"></div>
+  <div class="chips" id="srcCatBar" style="display:none;margin:-2px 0 10px"></div>   <!-- v2.21.1 精选分类筛选 -->
   <div class="tbl-wrap" style="max-height:56vh">
     <table>
       <thead><tr><th style="width:44px">置顶</th><th style="width:52px">启用</th><th>机构</th><th style="width:70px">方式</th><th style="width:120px">常用</th><th style="width:190px">最近连通情况</th><th style="width:96px">连通性测试</th><th>备注</th></tr></thead>
@@ -1242,6 +1252,11 @@ body.dark .diff-new{background:rgba(13,148,136,.22); color:#5eead4;}
             <input type="number" id="set_score_weight_authority"></label>
           <label class="form"><span class="t">内容完整性权重</span>
             <input type="number" id="set_score_weight_completeness"></label>
+          <label class="form"><span class="t">筛选发给 AI 的内容（v2.21.1 提速）</span>
+            <select id="set_screen_mode">
+              <option value="title">仅标题（默认，快且省 token）</option>
+              <option value="summary">标题+摘要（沿用旧版，更准但更慢）</option>
+            </select></label>
         </div>
         <label class="form"><span class="t">自定义评分细则（附加到 AI 评分提示词，可留空）</span>
           <textarea class="prompt" id="set_score_custom_rules" style="min-height:90px" placeholder="例：涉及央行流动性工具与非银机构的内容贴合性加 20 分；来自 FSB/BIS/IMF 一级机构的权威性按满分计"></textarea></label>
@@ -1984,7 +1999,7 @@ let searchT; $("#searchBox").oninput=()=>{clearTimeout(searchT); searchT=setTime
 
 /* ---------- 任务轮询（v2.4 多任务并行 + 排队 + 历史完成提醒） ---------- */
 const STAGE_LABEL = {
-  rsshub_heal: "路由规则体检", rsshub_upgrade: "RSSHub 整包升级",fetch:"检索采集",screen:"AI 筛选",compile:"AI 编译",probe:"连通性自检",
+  rsshub_heal: "路由规则更新", rsshub_upgrade: "RSSHub 整包升级",fetch:"检索采集",screen:"AI 筛选",compile:"AI 编译",probe:"连通性自检",
                      translate:"标题翻译",ai_add:"AI 添加信源",ai_check:"AI 检查信源",
                      backfill:"补全日期",hotspots:"热点方向分析",summarize:"AI 摘要",
                      search:"AI 搜索抓取",multi_compile:"综合专报编译",
@@ -3949,7 +3964,7 @@ const FIELDS_AUTO = ["backfill_auto","auto_translate","auto_screen_after_fetch",
 const FIELDS_PROXY = ["proxy_enabled","proxy_url"];
 const FIELDS_EXPORT = ["export_dir","masthead","issue_counter","org_line","sign_name","export_style"];
 const FIELDS_SCORE = ["score_weight_relevance","score_weight_timeliness",
-                      "score_weight_authority","score_weight_completeness"];
+                      "score_weight_authority","score_weight_completeness","screen_mode"];
 const FIELDS_SCREEN_PROMPT = ["custom_screen_criteria","screen_extra"];
 const FIELDS_COMPILE_PROMPT = ["custom_compile_prompt","compile_extra"];
 const FIELDS_SCORE_PROMPT = ["score_custom_rules","hotspot_extra"];
@@ -3961,7 +3976,7 @@ const FIELDS_MULTI_PROMPT = ["custom_multi_prompt","multi_extra"];
 const FIELDS_UI = ["ui_zoom","ui_theme","ui_font","translate_bold"];
 const SET_FIELDS = ["api_base_url","model_screen","model_compile","model_translate","export_dir","masthead",
   "issue_counter","org_line","sign_name","proxy_url","window_days","request_timeout","export_style",
-  "auto_fetch_time","auto_fetch_interval_min","custom_screen_criteria","screen_extra",
+  "auto_fetch_time","auto_fetch_interval_min","custom_screen_criteria","screen_extra","screen_mode",
   "custom_compile_prompt","compile_extra","custom_translate_prompt","translate_extra",
   "score_weight_relevance","score_weight_timeliness","score_weight_authority",
   "score_weight_completeness","score_custom_rules","hotspot_extra",
@@ -4225,13 +4240,17 @@ async function resetPrompt(kind){
 }
 
 /* ---------- 信源管理 ---------- */
-let SOURCES_ALL = [], srcTab = "common";
+let SOURCES_ALL = [], srcTab = "common", srcCatFilter = "";   // v2.21.1 分类筛选状态
 // v2.21 精选分类（可自定义名；映射为默认中文名）
 const CAT_NAMES = {cb_reg:"央行与监管",intl:"国际组织",cons:"咨询/评级/投行",
   bank:"银行与评级",market:"市场与投资",tech:"科技与AI",thinktank:"智库",
   media:"财经媒体",ins:"保险/养老",dep:"存款保险",gov:"政府机构",other:"其他"};
 const CAT_ORDER = ["cb_reg","intl","bank","cons","market","media","tech","thinktank","ins","dep","gov","other"];
 function catName(c){ return CAT_NAMES[c] || c || CAT_NAMES.other; }
+function setSrcCatFilter(v){   // v2.21.1 精选分类筛选切换（重渲染列表）
+  srcCatFilter = (srcCatFilter === v) ? "" : v;
+  loadSources();
+}
 function catOrderKey(s){
   let c = s.category || "";
   let i = CAT_ORDER.indexOf(c);
@@ -4250,7 +4269,7 @@ function pickSrcCategory(key, joinPicked){
   (SOURCES_ALL||[]).forEach(x=>{ const c=(x.category||"").trim(); if(c) names.add(c); });
   [...names].filter(Boolean).forEach(nm=>{
     const b = document.createElement("button");
-    b.className = "chip" + (nm===cur?" on":"");
+    b.className = "chip-toggle" + (nm===cur?" on":"");   // v2.21.1 独立浮层用带边框样式更醒目
     b.style.margin = "0 8px 8px 0";
     b.textContent = nm;
     b.onclick = () => pickSrcCategoryApply(nm);
@@ -4313,6 +4332,24 @@ async function loadSources(){
   const selP = $("#cntPicked"); if(selP) selP.textContent = cnt("picked");
 
   $("#srcGroupNote").textContent = SRC_GROUP_NOTE[srcTab] || "";
+  // v2.21.1 精选页分类筛选条：全部 + 各分类（含自定义名）+ 未分类，按数量排序；点选过滤
+  {
+    const bar = $("#srcCatBar");
+    if(bar){
+      if(srcTab !== "picked"){ bar.style.display = "none"; }
+      else {
+        const picked = SOURCES_ALL.filter(s=>s.in_common===1 || s.in_common===true);
+        const counts = {};
+        picked.forEach(s=>{ const c=(s.category||"").trim() || "__other"; counts[c]=(counts[c]||0)+1; });
+        const keys = Object.keys(counts).sort((a,b)=>counts[b]-counts[a]);
+        const btn = (val, label, on) => `<button class="chip${on?" on":""}" onclick="setSrcCatFilter('${val}')">${esc(label)}（${counts[val]||0}）</button>`;
+        bar.innerHTML = btn("", "全部", !srcCatFilter)
+          + keys.filter(k=>k!=="__other").map(k=>btn(k, catName(k), srcCatFilter===k)).join("")
+          + (counts["__other"] ? btn("__other", "未分类", srcCatFilter==="__other") : "");
+        bar.style.display = "";
+      }
+    }
+  }
   $("#aiAddCard").style.display = srcTab === "custom" ? "" : "none";
   const rc = $("#rssAddCard"); if(rc) rc.style.display = srcTab === "custom" ? "" : "none";
   $("#rsshubCard").style.display = srcTab === "custom" ? "" : "none";   // v2.13.1：两子模块同页并排
@@ -4323,6 +4360,10 @@ async function loadSources(){
   if(srcTab === "picked"){
     // v2.13.5 精选信源：已加入精选（原常用 in_common）的全部源（横跨预置/参考/自定义）
     shown = SOURCES_ALL.filter(s=>s.in_common===1 || s.in_common===true);
+    if(srcCatFilter){   // v2.21.1 分类筛选（""=全部；"__other"=未分类）
+      shown = shown.filter(s => srcCatFilter === "__other"
+        ? !(s.category||"").trim() : (s.category||"").trim() === srcCatFilter);
+    }
   } else if(srcTab === "common"){
     // v2.21 全部信源=所有信源（不分组过滤；预置/参考/自定义，含未精选与停用）
     shown = SOURCES_ALL.slice();
@@ -4358,6 +4399,10 @@ async function loadSources(){
       sortMode==="added" ? -(s.id || 0) : 0;   // 添加顺序（新→旧）：按源 id 倒序
     shown.sort((a,b)=>{
       if(sortMode === "added") return (b.id||0) - (a.id||0);
+      if(srcTab === "picked" && sortMode === "default"){   // v2.21 精选页默认按分类聚簇
+        const ca = catOrderKey(a) - catOrderKey(b);
+        if(ca !== 0) return ca;
+      }
       const ra = primeRank(a), rb = primeRank(b);
       if(ra !== rb) return ra - rb;
       return (b.pinned||0) - (a.pinned||0);
@@ -4892,14 +4937,14 @@ $("#btnRsshubUpdate").onclick = async () => {
   const la = (r.latest && r.latest.date) || "";
   if(!lo || !la){ toast("无法比较版本（本地构建信息缺失或 GitHub 暂不可达）"); return; }
   if(la > lo){
-    toast(`官方上游有更新：本地 ${lo}，官方最新 ${la}。新版路由集可通过「⤓ 内置整包升级」换装；个别失效路由可先用「🩺 路由规则体检」迁移。`);
+    toast(`官方上游有更新：本地 ${lo}，官方最新 ${la}。新版路由集可通过「⤓ 内置整包升级」换装；个别失效路由可先用「🩺 路由规则更新」迁移。`);
   } else {
     toast(`已是较新构建（本地 ${lo} ≥ 官方 ${la}）`);
   }
 };
 /* v2.13.4 RSSHub 自动下载更新 */
 $("#btnRsshubUpgrade").onclick = async () => {
-  if(!confirm("将从本仓库 Releases 下载 rsshub_bundle 整包运行环境，替换本机内置 RSSHub（下载约 300-500MB、重启验证；失败自动回滚旧版）。\n\n注：整包升级会带来最新路由集合；个别路由失效也可先试「🩺 路由规则体检」。继续？")) return;
+  if(!confirm("将从本仓库 Releases 下载 rsshub_bundle 整包运行环境，替换本机内置 RSSHub（下载约 300-500MB、重启验证；失败自动回滚旧版）。\n\n注：整包升级会带来最新路由集合；个别路由失效也可先试「🩺 路由规则更新」。继续？")) return;
   const r = await api("/api/rsshub/upgrade", {method:"POST", body:"{}"});
   if(r && r.started){ taskToastStart(r, "RSSHub 整包升级已提交（查询/下载/替换/重启验证，失败自动回滚）…"); }
   else toast((r && r.message) || "提交失败");
@@ -4907,7 +4952,7 @@ $("#btnRsshubUpgrade").onclick = async () => {
 $("#btnRsshubHeal").onclick = async () => {
   if(!confirm("对全部 RSSHub 信源做路由体检？\n本机/现实例拉不到的路由将自动换用仍能输出该路由的实例（订阅地址自动改写并留痕）。继续？")) return;
   const r = await api("/api/rsshub/heal", {method:"POST", body:"{}"});
-  if(r && r.started){ taskToastStart(r, "路由规则体检已提交：逐源探测（约几秒/源），失效路由自动迁移…"); }
+  if(r && r.started){ taskToastStart(r, "路由规则更新已提交：逐源探测（约几秒/源），失效路由自动迁移…"); }
   else toast((r && r.message) || "提交失败");
 };
 $("#btnRsshubNaming").onclick = async () => {
@@ -4984,6 +5029,27 @@ $("#btnAiAdd").onclick = async () => {
   if(!url){ toast("请先输入网址"); return; }
   const r = await api("/api/sources/ai_add", {method:"POST", body:JSON.stringify({url})});
   taskToastStart(r, "AI 正在分析站点结构，请稍候…");
+};
+// v2.21.1 RSS 订阅源直连添加（实测解析成功才入库）
+$("#btnRssAdd").onclick = async () => {
+  const u = $("#rssAddUrl").value.trim();
+  if(!u){ $("#rssAddMsg").textContent = "请先粘贴订阅地址"; return; }
+  const btn = $("#btnRssAdd"); btn.disabled = true; btn.textContent = "测试中…";
+  $("#rssAddMsg").textContent = "正在实测该订阅源（拉取并解析）…";
+  try {
+    const r = await api("/api/sources/add_rss", {method:"POST", body:JSON.stringify({url: u})});
+    if(r.ok){
+      $("#rssAddMsg").textContent = `✓ 已添加「${r.name}」（实测 ${r.items} 条），默认停用——打开「启用」即参与检索`;
+      $("#rssAddUrl").value = "";
+      loadSources();
+    } else {
+      $("#rssAddMsg").textContent = "✕ " + (r.error || "该地址返回的不是可解析的 RSS/Atom 订阅");
+    }
+  } catch(e) {
+    $("#rssAddMsg").textContent = "✕ 添加失败：" + e;
+  } finally {
+    btn.disabled = false; btn.textContent = "测试并添加";
+  }
 };
 $("#btnSearchClue").onclick = async () => {
   const kw = $("#searchKw").value.trim();

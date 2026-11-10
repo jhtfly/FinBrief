@@ -43,19 +43,24 @@ app = FastAPI(title="金融热点编译系统")
 
 @app.get("/")
 def index():
-    return FileResponse(f"{WEB_DIR}/index.html")
+    # v2.21.1 根修：禁用 HTTP 缓存——WebView2 对无 Cache-Control 的静态响应按
+    # Last-Modified 启发式缓存，升级程序后可能继续提供旧版界面（用户截图实证）。
+    return FileResponse(f"{WEB_DIR}/index.html",
+                        headers={"Cache-Control": "no-store"})
 
 
 @app.get("/help.js")
 def help_js():
     """v2.13.5 使用说明浮窗脚本（README 渲染 + 目录）。"""
-    return FileResponse(f"{WEB_DIR}/help.js", media_type="application/javascript")
+    return FileResponse(f"{WEB_DIR}/help.js", media_type="application/javascript",
+                        headers={"Cache-Control": "no-store"})
 
 
 @app.get("/route_catalog.json")
 def route_catalog():
     """v2.13.8 内置路由目录（2979+ 命名空间分类清单，从 RSSHub 路由库扫描生成）。"""
-    return FileResponse(f"{WEB_DIR}/route_catalog.json", media_type="application/json")
+    return FileResponse(f"{WEB_DIR}/route_catalog.json", media_type="application/json",
+                        headers={"Cache-Control": "no-store"})
 
 
 def _job_fetch(state, source_keys=None):

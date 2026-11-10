@@ -566,7 +566,7 @@ _SETTINGS_GROUPS = {
                     "backfill_auto", "auto_screen_after_fetch"],
     "评分权重": ["score_weight_relevance", "score_weight_timeliness",
                "score_weight_authority", "score_weight_completeness",
-               "score_custom_rules"],
+               "score_custom_rules", "screen_mode"],
     "提示词": ["custom_screen_criteria", "screen_extra",
              "custom_compile_prompt", "compile_extra",
              "custom_translate_prompt", "translate_extra",

@@ -56,9 +56,18 @@ def _custom_rules() -> str:
     return f"单位补充评分细则（优先级高于上述一般规则）：\n{custom}" if custom else ""
 
 
-def _system_prompt() -> str:
-    """筛选系统提示词：整体替换（保输出契约）+ 附加要求。"""
-    prompt = JUDGE_PROMPT.format(criteria=_criteria_text()) + OUTPUT_SPEC
+def _system_prompt(screen_mode: str = "summary") -> str:
+    """筛选系统提示词：整体替换（保输出契约）+ 附加要求。
+
+    v2.21.1 标题模式调整规则 1：仅提供标题与机构时按机构性质+标题议题判断，
+    不再要求"基于内容实质"（否则模型倾向于对无摘要的条目一律保守判否）。"""
+    body = JUDGE_PROMPT.format(criteria=_criteria_text())
+    if screen_mode == "title":
+        body = body.replace(
+            "1. 必须基于线索内容实质判断，不能只看标题字面。",
+            "1. 本次仅提供标题与来源机构——请结合机构性质与标题中体现的机构与议题进行判断"
+            "（是否监管/国际组织口径、是否金融稳定相关议题），标题之外的细节不苛求、也不因此扣分。")
+    prompt = body + OUTPUT_SPEC
     extra = (db.get_setting("screen_extra") or "").strip()
     if extra:
         prompt += f"\n\n单位附加筛选要求（必须遵守）：\n{extra}"
@@ -130,6 +139,8 @@ def screen_items(item_ids: list, batch_size: int = 8, progress_cb=None,
         workers = max(1, min(6, int(settings.get("ai_concurrency", "2"))))
     except (TypeError, ValueError):
         workers = 2
+    # v2.21.1 发送内容模式：默认只发标题（快且省 token）；summary=沿用标题+摘要
+    screen_mode = (str(settings.get("screen_mode") or "title")).strip() or "title"
     done = matched = 0
     error = None
     screened_ids = []   # 本轮写入判定的线索（打断回滚用）
@@ -144,13 +155,17 @@ def screen_items(item_ids: list, batch_size: int = 8, progress_cb=None,
             return 0, 0
         lines = []
         for n, it in enumerate(batch, 1):
-            summary = (it.get("summary") or "")[:400]
-            pub = (it.get("published_at") or "日期未知")[:10]
-            lines.append(
-                f"编号{n}｜来源机构：{it['source_name_en']}（{it['source_name_cn']}）｜"
-                f"发布时间：{pub}\n标题：{it['title']}\n摘要：{summary or '（无摘要，请依据标题与机构性质判断）'}")
+            if screen_mode == "summary":
+                summary = (it.get("summary") or "")[:400]
+                pub = (it.get("published_at") or "日期未知")[:10]
+                lines.append(
+                    f"编号{n}｜来源机构：{it['source_name_en']}（{it['source_name_cn']}）｜"
+                    f"发布时间：{pub}\n标题：{it['title']}\n摘要：{summary or '（无摘要，请依据标题与机构性质判断）'}")
+            else:   # title（默认）：机构+标题，无摘要——省 token 且避免整批更长等待
+                lines.append(
+                    f"编号{n}｜来源机构：{it['source_name_en']}（{it['source_name_cn']}）\n标题：{it['title']}")
         messages = [
-            {"role": "system", "content": _system_prompt()},
+            {"role": "system", "content": _system_prompt(screen_mode)},
             {"role": "user", "content": "待筛选线索：\n\n" + "\n\n".join(lines)},
         ]
         try:
