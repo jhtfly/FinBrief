@@ -1548,26 +1548,28 @@ body.dark .diff-new{background:rgba(13,148,136,.22); color:#5eead4;}
     </div>
   </div>
   <div class="card" id="shareCfgCard" style="margin-top:18px">
-    <h3>专报共享（轻云网盘）</h3>
-    <div class="d" style="color:var(--sub);font-size:12px;line-height:1.7;margin-bottom:10px">
-      通过接口盒子（apihz.cn）的轻云数据表与联盟轻量网盘，把专报 Word/文字稿共享给好友：圈内共用同一开发者 ID/KEY，
-      以「我的分享用户名」辨认上传者；好友在共享窗口按用户名检索、下载 Word 或查看全文。ID 与 KEY 经 DPAPI 加密存储，界面只显掩码。</div>
-    <div class="grid2">
-      <label class="form"><span class="t">开发者 ID（接口盒子）</span>
-        <input type="text" id="set_apihz_id" placeholder="如 10017665"></label>
-      <label class="form"><span class="t">通讯 KEY（接口盒子）</span>
-        <input type="password" id="set_apihz_key" placeholder="已配置时显示掩码；留空=不修改" autocomplete="new-password"></label>
-      <label class="form"><span class="t">数据表 ID（apihz 后台轻云数据表）</span>
-        <input type="text" id="set_apihz_table" placeholder="如 c6b1dd9c0713f0ea23507df62619be46"></label>
-      <label class="form"><span class="t">我的分享用户名（圈内唯一标识）</span>
-        <input type="text" id="set_share_uid" placeholder="如 zhang-01；好友按它检索你的共享"></label>
-      <label class="form"><span class="t">我的显示名（可选，随记录附带）</span>
-        <input type="text" id="set_share_display_name" placeholder="如 张三"></label>
+    <h3 style="display:flex;align-items:center;gap:10px">专报共享<span style="flex:1"></span>
+      <span class="muted" style="font-size:12px" id="shareCfgState"></span></h3>
+    <div class="d" style="color:var(--sub);font-size:12px;line-height:1.6;margin-bottom:8px">
+      专报 Word 走接口盒子（apihz.cn）的<b>轻量网盘</b>共享，共享记录集中在网盘的共享索引里；
+      圈内好友共用同一开发者 ID/KEY，按「我的分享用户名」辨认。ID/KEY 加密存储、界面只显掩码。</div>
+    <div class="grid2" style="row-gap:10px">
+      <label class="form"><span class="t">开发者 ID / 通讯 KEY（留空=用默认或已存值）</span>
+        <div style="display:flex;gap:6px">
+          <input type="text" id="set_apihz_id" placeholder="默认 10…65" style="flex:1">
+          <input type="password" id="set_apihz_key" placeholder="默认 6abd…9f21" autocomplete="new-password" style="flex:1">
+        </div></label>
+      <label class="form"><span class="t">我的分享用户名 / 显示名</span>
+        <div style="display:flex;gap:6px">
+          <input type="text" id="set_share_uid" placeholder="如 fb-a3f2c81d（自动生成）" style="flex:1">
+          <input type="text" id="set_share_display_name" placeholder="显示名（可选）" style="flex:1">
+        </div></label>
     </div>
-    <label class="form"><span class="t">好友列表（每行一条：昵称,对方用户名）——共享窗口检索时快速筛选</span>
-      <textarea class="prompt" id="set_share_friends" style="min-height:70px" placeholder="李四,li-04&#10;王五,wang-05"></textarea></label>
-    <div style="display:flex;gap:10px;margin-top:10px">
-      <button onclick="saveShareCfg()">保存共享配置</button>
+    <label class="form" style="margin-top:8px"><span class="t">好友列表（每行：昵称,对方用户名）</span>
+      <textarea class="prompt" id="set_share_friends" style="min-height:56px" placeholder="李四,li-04"></textarea></label>
+    <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+      <button onclick="saveShareCfg()">保存</button>
+      <button class="ghost" onclick="applyDefaultShareCfg()">一键采用默认 ID/KEY</button>
       <button class="ghost" onclick="testShareCfg()">测试连接</button>
       <span id="shareCfgMsg" class="muted" style="font-size:12.5px;align-self:center"></span>
     </div>
@@ -1611,8 +1613,8 @@ body.dark .diff-new{background:rgba(13,148,136,.22); color:#5eead4;}
     <button id="edTabEdit" title="点击后可直接在左侧改写文字（再点一次退出并自动保存）">✎ 人工编辑</button>
     <span style="flex:1"></span>
     <span class="fw-btns">
-      <!-- v2.21.4 缩放键左侧「快捷分享」：文字稿直传轻云数据表，好友按 uid 检索调取 -->
-      <button class="fw-ctl" id="fwQuickShare" title="快捷分享：把当前专报文字稿上传到轻云数据表，好友按我的分享用户名即可检索查看全文" onclick="quickShareCurrent()" style="color:var(--teal)">⇪ 快捷分享</button>
+      <!-- v2.21.4 缩放键左侧「快捷分享」：文字稿直传共享索引，好友按 uid 检索调取 -->
+      <button class="fw-ctl" id="fwQuickShare" title="快捷分享：把当前专报文字稿上传共享，好友按我的分享用户名即可检索查看全文" onclick="quickShareCurrent()" style="color:var(--teal);width:auto;min-width:34px;padding:0 8px;white-space:nowrap">⇪ 分享</button>
       <button class="fw-ctl" id="fwFontS" title="缩小窗口字体">A−</button>
       <button class="fw-ctl" id="fwFontL" title="放大窗口字体">A＋</button>
       <button class="fw-ctl" id="fwFontD" title="恢复默认字体大小">默认</button>
@@ -4190,13 +4192,23 @@ async function loadShareCfg(){
     const c = await api("/api/share/config");
     $("#set_apihz_id").value = "";   // 掩码不回填输入框，留空=不修改
     $("#set_apihz_key").value = "";
-    $("#set_apihz_id").placeholder = c.apihz_id_masked ? ("已配置：" + c.apihz_id_masked) : "如 10017665";
-    $("#set_apihz_key").placeholder = c.apihz_key_masked ? ("已配置：" + c.apihz_key_masked + "（留空=不修改）") : "通讯 KEY";
-    $("#set_apihz_table").value = c.apihz_table || "";
+    $("#set_apihz_id").placeholder = c.apihz_id_masked || "默认 ID";
+    $("#set_apihz_key").placeholder = (c.apihz_key_masked || "默认 KEY") + (c.using_default ? "（默认）" : "");
     $("#set_share_uid").value = c.share_uid || "";
     $("#set_share_display_name").value = c.share_display_name || "";
     $("#set_share_friends").value = (c.share_friends||[]).map(f=>`${f.name||""},${f.uid||""}`).filter(x=>x!==",").join("\n");
+    const st = $("#shareCfgState");
+    if(st) st.textContent = (c.using_default ? "当前：默认 ID/KEY" : "当前：自定义 ID/KEY") + (c.ready ? " · 就绪" : " · 未就绪");
   }catch(e){}
+}
+async function applyDefaultShareCfg(){
+  // v2.21.5 一键采用默认：把默认 ID/KEY 以 DPAPI 加密写入本机（之后界面显示同掩码）
+  const r = await api("/api/share/config", {method:"POST", body:JSON.stringify({
+    apihz_id: "@@DEFAULT@@", apihz_key: "@@DEFAULT@@",
+    share_uid: "", share_display_name: ($("#set_share_display_name").value||"").trim(),
+    share_friends: "[]"})});
+  if(r.ok) toast("已采用默认 ID/KEY");
+  loadShareCfg();
 }
 async function saveShareCfg(){
   const friends = ($("#set_share_friends").value||"").split(/\n+/)
@@ -4205,7 +4217,6 @@ async function saveShareCfg(){
   const r = await api("/api/share/config", {method:"POST", body:JSON.stringify({
     apihz_id: $("#set_apihz_id").value.trim(),
     apihz_key: $("#set_apihz_key").value.trim(),
-    apihz_table: $("#set_apihz_table").value.trim(),
     share_uid: $("#set_share_uid").value.trim(),
     share_display_name: $("#set_share_display_name").value.trim(),
     share_friends: JSON.stringify(friends)})});
