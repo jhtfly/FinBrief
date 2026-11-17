@@ -592,7 +592,8 @@ body.dark .diff-new{background:rgba(13,148,136,.22); color:#5eead4;}
     <span style="flex:1"></span>
     <button id="btnExportChecked" class="success" disabled>导出选中 Word（<span id="selN2">0</span>）</button>
     <button id="btnDelReportsSel" class="ghost" style="color:#b43030;border-color:#e3b6b6" disabled onclick="delReportsSel()">🗑 删除选中（<span id="selN3">0</span>）</button>
-    <input type="text" class="search" id="repSearch" placeholder="检索标题 / 机构 / 期号" style="max-width:230px" oninput="loadReports()">
+    <!-- v2.21.4 检索框移到排序右侧；原检索位置改为「专报共享」入口 -->
+    <button id="btnShareReports" class="ghost" onclick="shareModalOpen()" title="把勾选的专报 Word 上传到轻云网盘共享；或检索好友共享的专报">⇪ 专报共享</button>
     <select id="repSort" onchange="loadReports()" title="排序（v2.19.0 默认按添加顺序）">
       <option value="added">添加顺序：旧→新</option>
       <option value="added_desc">添加顺序：新→旧</option>
@@ -602,6 +603,7 @@ body.dark .diff-new{background:rgba(13,148,136,.22); color:#5eead4;}
       <option value="issue_asc">期号：小→大</option>
       <option value="title">标题 A→Z</option>
     </select>
+    <input type="text" class="search" id="repSearch" placeholder="检索标题 / 机构 / 期号" style="max-width:230px" oninput="loadReports()">
   </div>
   <div class="tbl-wrap">
     <table>
@@ -711,6 +713,17 @@ body.dark .diff-new{background:rgba(13,148,136,.22); color:#5eead4;}
         <thead><tr><th style="width:64px">期号</th><th>标题</th><th style="width:82px">状态</th>
           <th style="width:96px">收藏时间</th><th style="width:180px">操作</th></tr></thead>
         <tbody id="favReportRows"></tbody>
+      </table>
+    </div>
+  </div>
+  <div class="card">
+    <!-- v2.21.4 修复：综合专报/自定义专报收藏（multi_reports）此前完全没有渲染区块，收藏后在收藏夹看不到 -->
+    <h3 style="display:flex;align-items:center;gap:10px">综合 / 自定义专报收藏<span style="flex:1"></span><button class="sm ghost" onclick="clearFavs('multi')">🗑 一键清空</button></h3>
+    <div class="tbl-wrap" style="max-height:38vh">
+      <table>
+        <thead><tr><th style="width:64px">期号</th><th>标题</th><th style="width:110px">来源</th><th style="width:82px">状态</th>
+          <th style="width:96px">收藏时间</th><th style="width:180px">操作</th></tr></thead>
+        <tbody id="favMultiRows"></tbody>
       </table>
     </div>
   </div>
@@ -1081,6 +1094,49 @@ body.dark .diff-new{background:rgba(13,148,136,.22); color:#5eead4;}
       <button onclick="catMgrAdd()">＋ 新增分类</button>
       <button class="ghost" onclick="$('#catMgrBg').classList.remove('on')">关闭</button>
     </div>
+  </div>
+</div>
+<!-- v2.21.4 专报共享浮窗（上传共享 / 检索好友共享） -->
+<div class="modal-bg" id="shareBg">
+  <div class="modal" style="width:860px;max-width:94vw">
+    <div class="chips" style="margin-bottom:10px">
+      <button class="chip on" id="shareTabUp" onclick="shareTabSet('up')">⇪ 上传共享</button>
+      <button class="chip" id="shareTabFind" onclick="shareTabSet('find')">🔍 检索共享</button>
+    </div>
+    <div id="sharePaneUp">
+      <div class="pt-sub" style="margin-bottom:6px">把勾选的专报 Word 上传到轻量网盘并在轻云数据表登记共享记录（圈内好友可检索下载）。未导出的专报会自动先导出。</div>
+      <div id="shareUpList" class="pt-sub" style="max-height:26vh;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:8px"></div>
+      <div style="display:flex;gap:10px;margin-top:10px;align-items:center">
+        <input type="text" id="shareNote" placeholder="共享说明（可选，随记录显示）" style="flex:1">
+        <button id="btnShareUpload" onclick="shareUploadRun()">上传共享（<span id="shareUpN">0</span> 份）</button>
+      </div>
+      <div id="shareUpMsg" class="pt-sub" style="margin-top:8px"></div>
+    </div>
+    <div id="sharePaneFind" style="display:none">
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+        <select id="shareFindUid" style="width:170px" onchange="shareFindRun()">
+          <option value="">全部成员</option>
+        </select>
+        <input type="text" id="shareFindKw" placeholder="检索标题 / 期号 / 说明" style="flex:1;min-width:220px"
+               onkeydown="if(event.key==='Enter')shareFindRun()">
+        <button onclick="shareFindRun()">🔍 检索</button>
+        <button class="ghost" onclick="shareFindRun()" title="刷新列表">⟳</button>
+      </div>
+      <div id="shareFindRows" style="max-height:44vh;overflow:auto"></div>
+      <div id="shareFindMsg" class="pt-sub" style="margin-top:8px"></div>
+    </div>
+    <div style="display:flex;margin-top:12px"><span style="flex:1"></span>
+      <button class="ghost" onclick="$('#shareBg').classList.remove('on')">关闭</button></div>
+  </div>
+</div>
+<!-- 共享全文预览浮层 -->
+<div class="modal-bg" id="shareTextBg">
+  <div class="modal" style="width:720px">
+    <h3 id="shareTextTitle">共享全文</h3>
+    <div id="shareTextMeta" class="pt-sub" style="margin:2px 0 8px"></div>
+    <div id="shareTextBody" style="max-height:52vh;overflow:auto;white-space:pre-wrap;line-height:1.8;font-size:13.5px"></div>
+    <div style="display:flex;margin-top:10px"><span style="flex:1"></span>
+      <button class="ghost" onclick="$('#shareTextBg').classList.remove('on')">关闭</button></div>
   </div>
 </div>
 <div class="modal-bg" id="srcDetailBg">
@@ -1491,6 +1547,31 @@ body.dark .diff-new{background:rgba(13,148,136,.22); color:#5eead4;}
       <!-- v2.13.6 「功能简介与使用说明」卡取消（说明已并入「📖 使用说明」浮窗） -->
     </div>
   </div>
+  <div class="card" id="shareCfgCard" style="margin-top:18px">
+    <h3>专报共享（轻云网盘）</h3>
+    <div class="d" style="color:var(--sub);font-size:12px;line-height:1.7;margin-bottom:10px">
+      通过接口盒子（apihz.cn）的轻云数据表与联盟轻量网盘，把专报 Word/文字稿共享给好友：圈内共用同一开发者 ID/KEY，
+      以「我的分享用户名」辨认上传者；好友在共享窗口按用户名检索、下载 Word 或查看全文。ID 与 KEY 经 DPAPI 加密存储，界面只显掩码。</div>
+    <div class="grid2">
+      <label class="form"><span class="t">开发者 ID（接口盒子）</span>
+        <input type="text" id="set_apihz_id" placeholder="如 10017665"></label>
+      <label class="form"><span class="t">通讯 KEY（接口盒子）</span>
+        <input type="password" id="set_apihz_key" placeholder="已配置时显示掩码；留空=不修改" autocomplete="new-password"></label>
+      <label class="form"><span class="t">数据表 ID（apihz 后台轻云数据表）</span>
+        <input type="text" id="set_apihz_table" placeholder="如 c6b1dd9c0713f0ea23507df62619be46"></label>
+      <label class="form"><span class="t">我的分享用户名（圈内唯一标识）</span>
+        <input type="text" id="set_share_uid" placeholder="如 zhang-01；好友按它检索你的共享"></label>
+      <label class="form"><span class="t">我的显示名（可选，随记录附带）</span>
+        <input type="text" id="set_share_display_name" placeholder="如 张三"></label>
+    </div>
+    <label class="form"><span class="t">好友列表（每行一条：昵称,对方用户名）——共享窗口检索时快速筛选</span>
+      <textarea class="prompt" id="set_share_friends" style="min-height:70px" placeholder="李四,li-04&#10;王五,wang-05"></textarea></label>
+    <div style="display:flex;gap:10px;margin-top:10px">
+      <button onclick="saveShareCfg()">保存共享配置</button>
+      <button class="ghost" onclick="testShareCfg()">测试连接</button>
+      <span id="shareCfgMsg" class="muted" style="font-size:12.5px;align-self:center"></span>
+    </div>
+  </div>
   <div class="card" id="aboutCard" style="margin-top:18px">
         <h3>开源声明与使用须知</h3>
         <div class="footer-note" style="font-size:12.5px;line-height:1.9;margin:4px 0 0">
@@ -1515,6 +1596,8 @@ body.dark .diff-new{background:rgba(13,148,136,.22); color:#5eead4;}
   <button id="btnScreen">AI 筛选选中</button>
   <button id="btnCompile">一键编译</button>
   <button id="btnCompileMulti" class="ghost" style="display:none" onclick="compileMultiSel()">✦ 生成综合专报</button>
+  <!-- v2.21.4 线索面板选中后可一键删除（同归档页语义：已编译成专报的会被拦截并提示） -->
+  <button id="btnDelSel" class="ghost" style="color:#ff9c9c;border-color:#e3b6b6" onclick="delItemsSel()">🗑 删除选中（<span id="selN2i">0</span>）</button>
   <button class="plain" onclick="clearSel()">取消</button>
 </div>
 <!-- 进度条 -->
@@ -1528,6 +1611,8 @@ body.dark .diff-new{background:rgba(13,148,136,.22); color:#5eead4;}
     <button id="edTabEdit" title="点击后可直接在左侧改写文字（再点一次退出并自动保存）">✎ 人工编辑</button>
     <span style="flex:1"></span>
     <span class="fw-btns">
+      <!-- v2.21.4 缩放键左侧「快捷分享」：文字稿直传轻云数据表，好友按 uid 检索调取 -->
+      <button class="fw-ctl" id="fwQuickShare" title="快捷分享：把当前专报文字稿上传到轻云数据表，好友按我的分享用户名即可检索查看全文" onclick="quickShareCurrent()" style="color:var(--teal)">⇪ 快捷分享</button>
       <button class="fw-ctl" id="fwFontS" title="缩小窗口字体">A−</button>
       <button class="fw-ctl" id="fwFontL" title="放大窗口字体">A＋</button>
       <button class="fw-ctl" id="fwFontD" title="恢复默认字体大小">默认</button>
@@ -1867,6 +1952,7 @@ async function toggleFavItem(id, el){
 }
 function updateSel(){
   $("#selN").textContent = selItems.size;
+  const n2 = $("#selN2i"); if(n2) n2.textContent = selItems.size;
   $("#batchbar").classList.toggle("on", selItems.size>0);
   $("#btnCompileMulti").style.display = selItems.size>=2 ? "" : "none";
   // v2.13.3 选中的线索已全部 AI 筛选过 → 无需再显「AI 筛选选中」，只留一键编译
@@ -1875,6 +1961,22 @@ function updateSel(){
     return it && (it.is_match===null || it.is_match===undefined);
   });
   const bs = $("#btnScreen"); if(bs) bs.style.display = unscreened.length ? "" : "none";
+}
+// v2.21.4 线索面板批量删除（复用归档页 /api/archive/delete 语义与拦截提示）
+async function delItemsSel(){
+  const ids = [...selItems];
+  if(!ids.length) return;
+  if(!confirm(`确定删除选中的 ${ids.length} 条线索？
+（关联的筛选判定与收藏一并删除；已编译成专报的线索会被拦截）`)) return;
+  const r = await api("/api/archive/delete", {method:"POST", body: JSON.stringify({ids})});
+  if(!r || !r.ok){ toast((r && r.message) || "删除失败"); return; }
+  let msg = `已删除 ${r.deleted} 条线索`;
+  if((r.blocked||[]).length){
+    msg += `；拦截 ${r.blocked.length} 条（${r.blocked.slice(0,3).map(b=>"#"+b.id+" "+b.reason).join("、")}${r.blocked.length>3?" 等":""}）——请先删除其专报`;
+  }
+  toast(msg, 7000);
+  clearSel();
+  loadItems(); loadStats(); loadArchive(arcPage||1);
 }
 async function compileMultiSel(){
   const ids = [...selItems];
@@ -2648,6 +2750,19 @@ async function loadFavorites(){
       <td><button class="sm solidp" onclick="openEditor(${f.id},'ai')">编辑</button>
         <button class="star on" onclick="unfav('report',${f.id}, this)" title="取消收藏">★</button></td></tr>`).join("")
     || '<tr><td colspan="5" class="empty">暂无专报收藏 · 在专报管理点击 ☆ 收藏</td></tr>';
+  // v2.21.4 综合专报/自定义专报（multi_reports，custom 标记）收藏——此前整块缺失
+  const fmr = $("#favMultiRows");
+  if(fmr){
+    fmr.innerHTML = (data.multi||[]).map(f=>`
+      <tr><td>${f.issue_no?("第"+f.issue_no+"期"):"—"}</td>
+        <td>${esc(f.title||"")}</td>
+        <td class="muted">${f.custom ? "自定义专报" : "综合专报"}</td>
+        <td><span class="tag ${f.status==='exported'?'exported':'draft'}">${{draft:"草稿",reviewed:"已复核",exported:"已导出",abandoned:"已放弃"}[f.status]||f.status}</span></td>
+        <td class="muted">${(f.fav_at||"").replace("T"," ").slice(0,16)}</td>
+        <td><button class="sm solidp" onclick="openEditor(${f.id},'ai')">编辑</button>
+          <button class="star on" onclick="unfav('multi',${f.id}, this)" title="取消收藏">★</button></td></tr>`).join("")
+      || '<tr><td colspan="6" class="empty">暂无综合/自定义专报收藏 · 在专报管理（综合/自定义页签）点击 ☆ 收藏</td></tr>';
+  }
 }
 async function unfav(type, id, el){
   await api("/api/favorites", {method:"POST", body:JSON.stringify({type, target_id:id})});
@@ -2657,7 +2772,7 @@ async function unfav(type, id, el){
   loadFavorites();
 }
 async function clearFavs(type){
-  const label = type==="item" ? "线索收藏" : "专报收藏";
+  const label = type==="item" ? "线索收藏" : (type==="multi" ? "综合/自定义专报收藏" : "专报收藏");
   if(!confirm(`确定清空全部${label}？（不影响线索与专报本身）`)) return;
   const r = await api("/api/favorites/clear", {method:"POST", body:JSON.stringify({type})});
   if(r.ok){ toast(`已清空 ${r.removed} 条${label}`); loadFavorites(); if(type==="item") loadItems(); else loadReports(); }
@@ -4066,6 +4181,159 @@ async function loadSettings(){
   applyUI();
   loadTokenStats();
   loadTrial(false, s);
+  loadShareCfg();   // v2.21.4 专报共享配置（掩码回显）
+}
+/* ---------- v2.21.4 专报共享（apihz 轻云数据表+网盘） ---------- */
+async function loadShareCfg(){
+  const box = document.getElementById("shareCfgCard"); if(!box) return;
+  try{
+    const c = await api("/api/share/config");
+    $("#set_apihz_id").value = "";   // 掩码不回填输入框，留空=不修改
+    $("#set_apihz_key").value = "";
+    $("#set_apihz_id").placeholder = c.apihz_id_masked ? ("已配置：" + c.apihz_id_masked) : "如 10017665";
+    $("#set_apihz_key").placeholder = c.apihz_key_masked ? ("已配置：" + c.apihz_key_masked + "（留空=不修改）") : "通讯 KEY";
+    $("#set_apihz_table").value = c.apihz_table || "";
+    $("#set_share_uid").value = c.share_uid || "";
+    $("#set_share_display_name").value = c.share_display_name || "";
+    $("#set_share_friends").value = (c.share_friends||[]).map(f=>`${f.name||""},${f.uid||""}`).filter(x=>x!==",").join("\n");
+  }catch(e){}
+}
+async function saveShareCfg(){
+  const friends = ($("#set_share_friends").value||"").split(/\n+/)
+    .map(l=>{ const i=l.indexOf(","); return i>0 ? {name:l.slice(0,i).trim(), uid:l.slice(i+1).trim()} : null; })
+    .filter(Boolean);
+  const r = await api("/api/share/config", {method:"POST", body:JSON.stringify({
+    apihz_id: $("#set_apihz_id").value.trim(),
+    apihz_key: $("#set_apihz_key").value.trim(),
+    apihz_table: $("#set_apihz_table").value.trim(),
+    share_uid: $("#set_share_uid").value.trim(),
+    share_display_name: $("#set_share_display_name").value.trim(),
+    share_friends: JSON.stringify(friends)})});
+  if(r.ok){ toast("共享配置已保存"); loadShareCfg(); }
+  else toast(r.error || "保存失败");
+}
+async function testShareCfg(){
+  const el = $("#shareCfgMsg");
+  if(el) el.textContent = "测试中…";
+  const r = await api("/api/share/test", {method:"POST", body:"{}"});
+  if(el) el.textContent = r.ok ? "✓ " + (r.msg || "连接正常") : "✕ " + (r.error || "失败");
+}
+/* ---------- v2.21.4 共享浮窗（上传 / 检索） ---------- */
+let shareFriends = [];   // {name, uid}
+let shareTab = "up";
+function shareTabSet(t){
+  shareTab = t;
+  $("#shareTabUp").classList.toggle("on", t==="up");
+  $("#shareTabFind").classList.toggle("on", t==="find");
+  $("#sharePaneUp").style.display = t==="up" ? "" : "none";
+  $("#sharePaneFind").style.display = t==="find" ? "" : "none";
+  if(t==="find") shareFindInit();
+}
+function _shareKindFor(){   // 当前专报管理页签 → 共享 kind
+  return listMode==="single" ? "single" : "multi";
+}
+async function shareModalOpen(){
+  const items = selReports.size ? [...selReports] : [];
+  const kind = _shareKindFor();
+  const pool = kind==="single" ? REPORTS : MULTI_REPORTS;
+  $("#shareUpList").innerHTML = items.length
+    ? items.map(id=>{ const r = pool.find(x=>x.id===id); return r ? `<div style="padding:2px 0">· 第${r.issue_no||"?"}期 ｜ ${esc((r.title||"").slice(0,60))}</div>` : ""; }).join("")
+    : '<span class="muted">当前页签未勾选任何专报——可关闭本窗在表格里勾选（支持 Ctrl 单选/全选），或到「单篇/综合/自定义」页签重新勾选。</span>';
+  $("#shareUpN").textContent = items.length;
+  $("#shareUpMsg").textContent = "";
+  try{ const c = await api("/api/share/config"); shareFriends = c.share_friends||[]; }catch(e){}
+  shareTabSet("up");
+  $("#shareBg").classList.add("on");
+}
+async function shareUploadRun(){
+  const ids = [...selReports];
+  if(!ids.length){ toast("请先在专报表格里勾选要共享的专报"); return; }
+  const kind = _shareKindFor();
+  const note = $("#shareNote").value.trim();
+  if(!confirm(`将把勾选的 ${ids.length} 份专报上传共享？（未导出的会自动先导出）\n\n提醒：共享 Word 的直链是公开地址——知道链接的人都能下载；圈内好友通过共享凭据检索。`)) return;
+  const btn = $("#btnShareUpload"); btn.disabled = true;
+  $("#shareUpMsg").textContent = "已提交上传任务（串行上传，每份间隔约 7 秒防频次限制），进度见任务中心…";
+  try{
+    const r = await api("/api/share/upload", {method:"POST",
+      body: JSON.stringify({items: ids.map(id=>({kind, id})), note})});
+    if(r && r.started){ taskToastStart(r, "专报共享上传已提交…"); }
+    else toast((r && r.message) || "提交失败");
+  } finally { btn.disabled = false; }
+}
+async function shareFindInit(){
+  const sel = $("#shareFindUid");
+  const cur = sel.value;
+  const mine = $("#set_share_uid") ? $("#set_share_uid").value.trim() : "";
+  sel.innerHTML = '<option value="">全部成员</option>'
+    + (mine ? `<option value="${esc(mine)}">我的共享（${esc(mine)}）</option>` : "")
+    + shareFriends.map(f=>`<option value="${esc(f.uid)}">${esc(f.name||f.uid)}（${esc(f.uid)}）</option>`).join("");
+  sel.value = cur;
+  shareFindRun();
+}
+async function shareFindRun(){
+  const uid = $("#shareFindUid").value;
+  const kw = $("#shareFindKw").value.trim();
+  const box = $("#shareFindRows");
+  box.innerHTML = '<span class="muted">检索中…</span>';
+  const r = await api(`/api/share/list?uid=${encodeURIComponent(uid)}&q=${encodeURIComponent(kw)}`);
+  const myUid = r.my_uid || "";
+  if(!r.ok){
+    box.innerHTML = "";
+    $("#shareFindMsg").textContent = "✕ " + (r.error || "检索失败");
+    return;
+  }
+  $("#shareFindMsg").textContent = r.records.length ? `共 ${r.records.length} 条记录` : "没有匹配的共享记录";
+  box.innerHTML = r.records.map(f=>{
+    const mine = f.share_uid === myUid;
+    const isFile = String(f.kind||"").startsWith("file");
+    return `<div style="border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-bottom:8px">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <b style="font-size:13.5px">${esc(f.title||"（无标题）")}</b>
+        <span class="muted" style="font-size:12px">${f.issue_no?("第"+f.issue_no+"期"):"—"}</span>
+        <span class="tag ${mine?"match":"none"}">${mine?"我":"好友"} · ${esc(f.share_name||f.share_uid||"未知")}</span>
+        <span class="muted" style="font-size:11.5px">${esc((f.created_at||"").slice(0,16).replace("T"," "))}</span>
+        <span style="flex:1"></span>
+        ${isFile ? `<button class="sm" onclick="shareDownload(${f.id},'${esc((f.resurl||"").replace(/'/g,"&#39;"))}','${esc((f.file_name||"").replace(/'/g,"&#39;"))}')">⤓ 下载 Word</button>` : ""}
+        ${!isFile && (f.content||"") ? `<button class="sm ghost" onclick="shareShowText(${f.id})">📄 查看全文</button>` : ""}
+        ${mine ? `<button class="sm ghost" style="color:#b43030" onclick="shareDeleteRec(${f.id})">删除</button>` : ""}
+      </div>
+      ${f.note ? `<div class="muted" style="font-size:12px;margin-top:4px">${esc(String(f.note).slice(0,200))}</div>` : ""}
+    </div>`;
+  }).join("") || '<span class="muted">（无记录）</span>';
+}
+async function shareDownload(rid, resurl, fname){
+  toast("下载中…");
+  const r = await api("/api/share/download", {method:"POST",
+    body: JSON.stringify({rid, resurl, file_name: fname})});
+  if(r.ok) toast(`已下载到：${r.path}`, 8000);
+  else toast(r.error || "下载失败");
+}
+async function shareShowText(rid){
+  const r = await api(`/api/share/text?rid=${rid}`);
+  if(!r.ok){ toast(r.error || "读取失败"); return; }
+  const f = r.record;
+  $("#shareTextTitle").textContent = f.title || "共享全文";
+  $("#shareTextMeta").textContent =
+    `${f.issue_no?("第"+f.issue_no+"期"):""} · ${f.share_name||f.share_uid||""} · ${(f.created_at||"").slice(0,16).replace("T"," ")}`;
+  $("#shareTextBody").textContent = f.content || "（无文字内容）";
+  $("#shareTextBg").classList.add("on");
+}
+async function shareDeleteRec(rid){
+  if(!confirm("删除这条共享记录？（将同时删除网盘文件）")) return;
+  const r = await api("/api/share/delete", {method:"POST", body: JSON.stringify({rid})});
+  if(r.ok){ toast("已删除（网盘：" + (r.pan_msg||"成功") + "）"); shareFindRun(); }
+  else toast(r.error || "删除失败");
+}
+/* ---------- v2.21.4 编辑器快捷分享 ---------- */
+async function quickShareCurrent(){
+  if(!editingId){ toast("请先打开一篇专报"); return; }
+  const kind = editingKind==="multi" ? "multi" : "single";
+  const label = kind==="multi" ? "综合/自定义专报" : "单篇专报";
+  if(!confirm(`将把当前${label}的文字稿（标题/期号/正文/脚注引用）上传到轻云数据表共享，好友可用你的分享用户名检索查看。继续？`)) return;
+  toast("上传中…");
+  const r = await api("/api/share/quick", {method:"POST", body: JSON.stringify({kind, id: editingId})});
+  if(r.ok){ toast(`✓ 已快捷分享（${r.uid||""}）——好友在共享窗口检索即可查看全文`, 8000); }
+  else toast(r.error || "快捷分享失败");
 }
 /* ---------- 试用体验额度（v2.8） ---------- */
 async function loadTrial(refresh, preset){

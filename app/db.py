@@ -576,6 +576,7 @@ _SETTINGS_GROUPS = {
              "custom_multi_prompt", "multi_extra", "hotspot_extra"],
     "导出排版": ["export_dir", "masthead", "issue_counter", "org_line", "sign_name"],
     "界面外观": ["ui_zoom", "ui_theme", "ui_font", "translate_bold"],
+    "专报共享": ["apihz_table", "share_uid", "share_display_name", "share_friends"],
 }
 _GROUP_HINTS = {
     "API与模型": "接口地址 / 密钥 / 各模型名 / AI 失败自动重试次数（0-6）",

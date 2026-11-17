@@ -29,6 +29,7 @@ GROUPS = {
     "ai_search_local": "ai",   # v2.15.0 线索面板 AI 检索改后台任务（原同步等待 10-40s 无感知）
     "rsshub_upgrade": "net",   # v2.21 RSSHub 整包升级（Releases 下载运行包替换，v2.13.4 的 npm dist 链路已失效）
     "rsshub_heal": "net",  # v2.21 路由规则体检：失效 RSSHub 路由自动迁移可用实例
+    "share_upload": "net",   # v2.21.4 专报共享批量上传（网盘+轻云数据表，串行防频次限制）
 }
 GUARANTEE_ONE = {"fetch": 1, "net": 1}   # 组内固定 1 并发（站点级并发在 run_fetch 内部）
 

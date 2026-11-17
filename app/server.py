@@ -1208,6 +1208,238 @@ def api_category_mgr(req: CatMgrReq):
     return {"ok": False, "error": "未知操作"}
 
 
+# ---------- v2.21.4 专报共享（apihz 轻云数据表 + 联盟轻量网盘） ----------
+class ShareConfigReq(BaseModel):
+    apihz_id: str = ""
+    apihz_key: str = ""
+    apihz_table: str = ""
+    share_uid: str = ""
+    share_display_name: str = ""
+    share_friends: str = ""     # JSON [{name, uid}]
+
+
+@app.get("/api/share/config")
+def api_share_config_get():
+    from app import share_apihz as sa
+    c = sa.get_creds()
+    return {
+        "ready": bool(c["id"] and c["key"] and c["table"]),
+        "apihz_id_masked": (c["id"][:2] + "…" + c["id"][-2:]) if len(c["id"]) > 6 else c["id"],
+        "apihz_key_masked": (c["key"][:4] + "…" + c["key"][-4:]) if len(c["key"]) > 10 else c["key"],
+        "apihz_table": c["table"], "share_uid": c["uid"],
+        "share_display_name": db.get_setting("share_display_name") or "",
+        "share_friends": c["friends"],
+    }
+
+
+@app.post("/api/share/config")
+def api_share_config_save(req: ShareConfigReq):
+    # ID/KEY 走 DPAPI 加密存储（掩码值不覆盖）；表 ID/uid/好友为普通设置
+    if req.apihz_id and "…" not in req.apihz_id:
+        db.set_secret("apihz_id", req.apihz_id.strip())
+    if req.apihz_key and "…" not in req.apihz_key:
+        db.set_secret("apihz_key", req.apihz_key.strip())
+    db.set_setting("apihz_table", req.apihz_table.strip())
+    uid = req.share_uid.strip()[:40]
+    db.set_setting("share_uid", uid)
+    db.set_setting("share_display_name", req.share_display_name.strip()[:20])
+    db.set_setting("share_friends", req.share_friends or "[]")
+    db.log("share", "共享配置已更新")
+    return {"ok": True}
+
+
+@app.post("/api/share/test")
+def api_share_test():
+    """凭据连通测试：轻云数据表 SELECT 1 校验（不产生数据）。"""
+    from app import share_apihz as sa
+    if not sa.creds_ready():
+        return {"ok": False, "error": "凭据未配置完整（ID/KEY/数据表ID）"}
+    c = sa.get_creds()
+    data, msg, err = sa.qyun(c, f"SELECT `id` FROM `{c['table']}` LIMIT 1", 2)
+    if err:
+        return {"ok": False, "error": err}
+    if msg and "错误" in msg:
+        return {"ok": False, "error": msg}
+    return {"ok": True, "msg": "数据表连接正常"}
+
+
+@app.post("/api/share/quick")
+def api_share_quick(req: dict):
+    """编辑器快捷分享：把当前专报的 标题/期号/正文/脚注引用 写入轻云数据表（文字稿）。"""
+    from app import share_apihz as sa
+    kind = str(req.get("kind") or "single")
+    rid = int(req.get("id") or 0)
+    if not rid:
+        return {"ok": False, "error": "缺少专报 ID"}
+    if kind == "single":
+        rep = db.get_report(rid)
+        if not rep:
+            return {"ok": False, "error": "专报不存在"}
+        title, issue = rep.get("title") or "", str(rep.get("issue_no") or "")
+        sections = []
+        for s in (rep.get("body") or []):
+            if isinstance(s, dict):
+                sections.append(str(s.get("title") or ""))
+                for b in (s.get("blocks") or []):
+                    if isinstance(b, dict):
+                        sections.append(str(b.get("text") or ""))
+        cites = [(c.get("ref") or "") for c in (rep.get("citations") or [])]
+        base_kind = "single"
+    else:
+        m = db.get_multi_report(rid)
+        if not m:
+            return {"ok": False, "error": "综合/自定义专报不存在"}
+        title, issue = m.get("title") or "", str(m.get("issue_no") or "")
+        sections = []
+        for s in (m.get("body") or []):
+            if isinstance(s, dict):
+                sections.append(str(s.get("title") or ""))
+                for b in (s.get("blocks") or []):
+                    if isinstance(b, dict):
+                        sections.append(str(b.get("text") or ""))
+        cites = [(c.get("ref") or "") for c in (m.get("citations") or [])]
+        base_kind = "custom" if m.get("custom") else "multi"
+    if not (title or "".join(sections)).strip():
+        return {"ok": False, "error": "专报内容为空，无可分享"}
+    c = sa.get_creds()
+    if not sa.creds_ready():
+        return {"ok": False, "error": "共享凭据未配置（设置 → 专报共享）"}
+    rec = {"share_uid": c["uid"] or "user",
+           "share_name": (db.get_setting("share_display_name") or "")[:60],
+           "kind": "text:" + base_kind, "title": title[:190], "issue_no": issue[:30],
+           "file_name": "", "resurl": "",
+           "content": ("\n".join(x for x in sections if x.strip()))[:60000],
+           "note": ("脚注引用：" + "；".join(x for x in cites if x))[:1500],
+           "created_at": db.now_iso()}
+    data, msg, err = sa.record_insert(c, rec)
+    if err:
+        return {"ok": False, "error": f"分享失败：{err}"}
+    db.log("share", f"快捷分享已上传：{title[:40]}（{c['uid']}）")
+    return {"ok": True, "title": title, "uid": c["uid"],
+            "msg": msg or ""}
+
+
+@app.get("/api/share/list")
+def api_share_list(uid: str = "", q: str = ""):
+    from app import share_apihz as sa
+    c = sa.get_creds()
+    if not sa.creds_ready():
+        return {"ok": False, "error": "共享凭据未配置", "records": []}
+    data, msg, err = sa.record_query(c, uid, q, 100)
+    if err:
+        return {"ok": False, "error": err, "records": []}
+    rows = []
+    for r in (data or []):
+        try:
+            r["id"] = int(r.get("id") or 0)
+        except (TypeError, ValueError):
+            continue
+        rows.append(r)
+    return {"ok": True, "records": rows, "my_uid": c["uid"],
+            "msg": msg or ""}
+
+
+@app.get("/api/share/text")
+def api_share_text(rid: int):
+    from app import share_apihz as sa
+    c = sa.get_creds()
+    data, msg, err = sa.record_get(c, rid)
+    if err:
+        return {"ok": False, "error": err}
+    if not data:
+        return {"ok": False, "error": "记录不存在"}
+    return {"ok": True, "record": data}
+
+
+@app.post("/api/share/download")
+def api_share_download(req: dict):
+    """下载共享 Word 到「编译报告\\共享」目录（直链公开 GET）。"""
+    import os as _os
+    import re as _re
+    from app import share_apihz as sa
+    resurl = str(req.get("resurl") or "").strip()
+    fname = str(req.get("file_name") or "").strip()
+    if not (resurl.startswith("http") and fname):
+        return {"ok": False, "error": "缺少直链或文件名"}
+    dest_dir = _os.path.join(db.export_dir_setting(), "共享")
+    _os.makedirs(dest_dir, exist_ok=True)
+    safe = _re.sub(r"[\\/:*?\"<>|]", "_", fname)[:150] or "share.docx"
+    dest = _os.path.join(dest_dir, safe)
+    try:
+        import httpx as _h
+        with _h.Client(timeout=60, verify=False, follow_redirects=True) as cli:
+            with cli.stream("GET", resurl) as resp:
+                resp.raise_for_status()
+                blob = b"".join(resp.iter_bytes())
+    except Exception as e:
+        return {"ok": False, "error": f"下载失败：{type(e).__name__}: {str(e)[:100]}"}
+    with open(dest, "wb") as f:
+        f.write(blob)
+    db.log("share", f"共享专报已下载：{safe}（{len(blob)/1024:.0f}KB）")
+    return {"ok": True, "path": dest, "bytes": len(blob)}
+
+
+@app.post("/api/share/delete")
+def api_share_delete(req: dict):
+    from app import share_apihz as sa
+    rid = int(req.get("rid") or 0)
+    if not rid:
+        return {"ok": False, "error": "缺少记录 ID"}
+    c = sa.get_creds()
+    data, msg, err = sa.record_get(c, rid)
+    if err:
+        return {"ok": False, "error": err}
+    if not data:
+        return {"ok": False, "error": "记录不存在"}
+    if (data.get("share_uid") or "") != (c["uid"] or "user"):
+        return {"ok": False, "error": "只能删除自己上传的共享记录"}
+    fname = data.get("file_name") or ""
+    dmsg = sa.pan_delete(c, fname) if fname else None
+    rdata, rmsg, rerr = sa.record_delete(c, rid, c["uid"] or "user")
+    if rerr:
+        return {"ok": False, "error": f"记录删除失败：{rerr}"}
+    db.log("share", f"共享记录已删除：{fname}（网盘删除：{dmsg or '成功'}）")
+    return {"ok": True, "pan_msg": dmsg or "成功"}
+
+
+def _job_share_upload(state, items):
+    """v2.21.4 批量共享上传（串行：apihz 免费档 10 次/分钟，每份间隔 7 秒）。"""
+    import time as _time
+    from app import share_apihz as sa
+    c = sa.get_creds()
+    if not sa.creds_ready():
+        return {"ok": False, "reason": "共享凭据未配置（设置 → 专报共享）"}
+    ok_n = 0
+    errors = []
+    for i, it in enumerate(items, 1):
+        kind = str(it.get("kind") or "single")
+        rid = int(it.get("id") or 0)
+        note = str(it.get("note") or "")
+        state.update(f"共享上传（{i}/{len(items)}）：读取专报…")
+        r = sa.upload_word_share(c, kind, rid, note)
+        if r.get("ok"):
+            ok_n += 1
+        else:
+            errors.append(f"{r.get('title') or rid}: {str(r.get('error') or '')[:80]}")
+        if i < len(items):
+            state.update(f"共享上传（{i}/{len(items)}）完成，等待频次间隔…")
+            _time.sleep(7)   # 免费档 10 次/分钟：每份 7s 保守限速
+    return {"ok": ok_n > 0, "uploaded": ok_n, "total": len(items),
+            "errors": errors}
+
+
+@app.post("/api/share/upload")
+def api_share_upload(req: dict):
+    items = req.get("items") or []
+    note = str(req.get("note") or "")[:400]
+    if not items:
+        return {"ok": False, "message": "请先勾选要共享的专报"}
+    payload = [{"kind": str(it.get("kind") or "single"),
+                "id": int(it.get("id") or 0), "note": note} for it in items]
+    ok, msg = run_in_background("share_upload", _job_share_upload, payload)
+    return {"started": ok, "message": msg}
+
+
 class SourcePin(BaseModel):
     pinned: bool
 
