@@ -142,7 +142,7 @@ def index_fetch(creds: dict) -> tuple:
         if isinstance(obj, dict) and isinstance(obj.get("records"), list):
             recs = [r for r in obj["records"] if isinstance(r, dict)]
             if recs:
-                _cache_save(recs)
+                _cache_save(recs, replace=False)   # v2.21.9b 只增改不减：陈旧 CDN 副本不得冲掉缓存
             return recs, None
         return [], None
     except httpx.HTTPError as e:
@@ -161,23 +161,62 @@ def _cache_load() -> list:
         return []
 
 
-def _cache_save(records: list) -> None:
+def _tombstones() -> set:
+    """已删除共享记录的 rid 墓碑（防止 CDN 陈旧副本把删除行复活）。"""
     from app import db
-    db.set_setting("share_index_cache", _j.dumps(records[-220:], ensure_ascii=False))
+    try:
+        arr = _j.loads(db.get_setting("share_tombstones") or "[]")
+        return {str(x) for x in arr if str(x)}
+    except (ValueError, TypeError):
+        return set()
+
+
+def _add_tombstone(rid: str) -> None:
+    from app import db
+    ts = _tombstones()
+    ts.add(str(rid))
+    db.set_setting("share_tombstones", _j.dumps(sorted(ts)[-200:], ensure_ascii=False))
+
+
+def _cache_save(records: list, replace: bool = True) -> None:
+    """本地快照写策略（v2.21.9b 事故根修）：
+    - replace=True（index_save 权威写入后）整表替换——写者掌握全量真值；
+    - replace=False（远端拉取成功后）按 rid 只增改不减——CDN 刷新窗口内拉到
+      陈旧残缺副本（如事故中只剩 1 条）不得冲掉本地更全的快照，否则"下次
+      写入拿残缺列表重写索引"会再次覆盖掉圈内其他人的记录。
+    删除的记录由墓碑过滤，不会被陈旧副本/旧缓存复活。"""
+    from app import db
+    ts = _tombstones()
+    if replace:
+        merged = [r for r in records if isinstance(r, dict) and str(r.get("rid")) not in ts]
+    else:
+        try:
+            cur = {str(r.get("rid")): r for r in _cache_load()
+                   if str(r.get("rid")) not in ts}
+        except (ValueError, TypeError):
+            cur = {}
+        for r in records:
+            if isinstance(r, dict) and str(r.get("rid")) not in ts:
+                cur[str(r.get("rid"))] = r
+        merged = list(cur.values())
+    merged = sorted(merged, key=_record_key)[-220:]
+    db.set_setting("share_index_cache", _j.dumps(merged, ensure_ascii=False))
 
 
 def index_fetch_merged(creds: dict) -> tuple:
-    """远端索引 ∪ 本地快照（按 rid 并集、远端优先）——抵御 CDN 刷新延迟/误删。"""
+    """远端索引 ∪ 本地快照（按 rid 并集、远端优先）——抵御 CDN 刷新延迟/误删。
+    v2.21.9b：结果过滤删除墓碑（陈旧远端副本不再展示已删记录）。"""
     recs, err = index_fetch(creds)
     if err:
         return None, err
-    cache = _cache_load()
-    if not cache:
-        return recs, None
+    ts = _tombstones()
+    cache = [r for r in _cache_load() if str(r.get("rid")) not in ts]
     by_rid = {}
     for r in cache:
         by_rid[str(r.get("rid"))] = r
     for r in recs:
+        if str(r.get("rid")) in ts:
+            continue   # 陈旧远端副本里的已删记录不复活
         by_rid[str(r.get("rid"))] = r   # 远端覆盖同 rid
     merged = list(by_rid.values())
     merged = _trim(merged)
@@ -276,7 +315,11 @@ def share_word_file(creds: dict, rid: str, title: str, issue: str,
     if err:
         return {"ok": False, "error": f"网盘上传失败：{err}", "file_name": file_name}
     from app import db
-    recs, ferr = index_fetch(creds)
+    # v2.21.9b 关键修复：写索引前必须用 merged（远端∪本地快照）——
+    # 批量上传/删除后 CDN 有 1-2 分钟刷新窗口，期间远端 404，index_fetch 会把它
+    # 当成"空索引"，下一份上传就拿空列表重写索引，把圈内其他人的记录全部冲掉
+    # （2026-11-19 实证事故：索引只剩最后一条上传）。404+快照为空才是真"空圈"。
+    recs, ferr = index_fetch_merged(creds)
     if ferr:
         return {"ok": False, "error": f"共享索引读取失败：{ferr}", "resurl": resurl}
     recs = _trim(recs or [])[:WORD_KEEP - 1]
@@ -330,6 +373,7 @@ def share_delete_record(creds: dict, rid: str, uid: str) -> dict:
     serr = index_save(creds, new_recs)
     if serr:
         return {"ok": False, "error": f"共享索引写入失败：{serr}", "pan_msg": pan_msg}
+    _add_tombstone(rid)   # v2.21.9b 墓碑：其他机器的陈旧缓存/CDN 副本不得复活已删记录
     return {"ok": True, "pan_msg": pan_msg}
 
 

@@ -4298,6 +4298,7 @@ function _shareKindFor(){   // 当前专报管理页签 → 共享 kind
 let sharePick = new Set();   // v2.21.6 弹窗内勾选集（kind:id 字符串）
 async function shareModalOpen(forceKind){
   try{ const c = await api("/api/share/config"); shareFavMembers = c.fav_members||[]; }catch(e){}
+  shareCurMember = "";   // v2.21.9b 每次打开共享窗口都从"全部成员"开始（成员筛选不跨开合记忆）
   // v2.21.7 修复：从自定义专报浮窗进入时先收起它（两个模态同层叠加会互相遮挡）
   if(forceKind === "custom"){
     try{ custClose(); }catch(e){}
