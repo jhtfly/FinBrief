@@ -1126,14 +1126,13 @@ body.dark .diff-new{background:rgba(13,148,136,.22); color:#5eead4;}
     </div>
     <div id="sharePaneFind" style="display:none">
       <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
-        <select id="shareFindUid" style="width:170px" onchange="shareFindRun()">
-          <option value="">全部成员</option>
-        </select>
-        <input type="text" id="shareFindKw" placeholder="检索标题 / 期号 / 说明" style="flex:1;min-width:220px"
+        <input type="text" id="shareFindKw" placeholder="检索：标题 / 期号 / 说明 / 用户名 / 显示名" style="flex:1;min-width:220px"
                onkeydown="if(event.key==='Enter')shareFindRun()">
         <button onclick="shareFindRun()">🔍 检索</button>
         <button class="ghost" onclick="shareFindRun()" title="刷新列表">⟳</button>
       </div>
+      <!-- v2.21.9 成员快捷筛选 chips：常用好友置顶⭐；点记录上的成员标签可添加/移出常用好友 -->
+      <div id="shareMemberChips" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px"></div>
       <div id="shareFindRows" style="max-height:44vh;overflow:auto"></div>
       <div id="shareFindMsg" class="pt-sub" style="margin-top:8px"></div>
     </div>
@@ -1575,8 +1574,7 @@ body.dark .diff-new{background:rgba(13,148,136,.22); color:#5eead4;}
               <input type="text" id="set_share_display_name" placeholder="显示名（可选）" style="flex:1">
             </div></label>
         </div>
-        <label class="form" style="margin-top:8px"><span class="t">好友列表（每行：昵称,对方用户名）</span>
-          <textarea class="prompt" id="set_share_friends" style="min-height:56px" placeholder="李四,li-04"></textarea></label>
+        <!-- v2.21.9 好友列表功能已取消：检索窗口直接按用户名/显示名检索，点成员标签即可添加常用好友 -->
         <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
           <button onclick="saveShareCfg()">保存</button>
           <button class="ghost" onclick="applyDefaultShareCfg()">一键采用默认 ID/KEY</button>
@@ -4222,7 +4220,7 @@ async function loadShareCfg(){
     $("#set_apihz_key").placeholder = (c.apihz_key_masked || "默认 KEY") + (c.using_default ? "（默认）" : "");
     $("#set_share_uid").value = c.share_uid || "";
     $("#set_share_display_name").value = c.share_display_name || "";
-    $("#set_share_friends").value = (c.share_friends||[]).map(f=>`${f.name||""},${f.uid||""}`).filter(x=>x!==",").join("\n");
+    shareFavMembers = c.fav_members || [];   // v2.21.9 常用好友（好友列表已取消）
     const st = $("#shareCfgState");
     if(st) st.textContent = (c.using_default ? "当前：默认 ID/KEY" : "当前：自定义 ID/KEY") + (c.ready ? " · 就绪" : " · 未就绪");
   }catch(e){}
@@ -4231,21 +4229,16 @@ async function applyDefaultShareCfg(){
   // v2.21.5 一键采用默认：把默认 ID/KEY 以 DPAPI 加密写入本机（之后界面显示同掩码）
   const r = await api("/api/share/config", {method:"POST", body:JSON.stringify({
     apihz_id: "@@DEFAULT@@", apihz_key: "@@DEFAULT@@",
-    share_uid: "", share_display_name: ($("#set_share_display_name").value||"").trim(),
-    share_friends: "[]"})});
+    share_uid: "", share_display_name: ($("#set_share_display_name").value||"").trim()})});
   if(r.ok) toast("已采用默认 ID/KEY");
   loadShareCfg();
 }
 async function saveShareCfg(){
-  const friends = ($("#set_share_friends").value||"").split(/\n+/)
-    .map(l=>{ const i=l.indexOf(","); return i>0 ? {name:l.slice(0,i).trim(), uid:l.slice(i+1).trim()} : null; })
-    .filter(Boolean);
   const r = await api("/api/share/config", {method:"POST", body:JSON.stringify({
     apihz_id: $("#set_apihz_id").value.trim(),
     apihz_key: $("#set_apihz_key").value.trim(),
     share_uid: $("#set_share_uid").value.trim(),
-    share_display_name: $("#set_share_display_name").value.trim(),
-    share_friends: JSON.stringify(friends)})});
+    share_display_name: $("#set_share_display_name").value.trim()})});
   if(r.ok){ toast("共享配置已保存"); loadShareCfg(); }
   else toast(r.error || "保存失败");
 }
@@ -4286,7 +4279,10 @@ async function pickMigrateFolder(){   // v2.21.8 桌面窗口弹出目录选择�
   }catch(e){ toast("当前环境不支持弹窗选择，请手动粘贴路径"); }
 }
 /* ---------- v2.21.4 共享浮窗（上传 / 检索） ---------- */
-let shareFriends = [];   // {name, uid}
+// v2.21.9 好友列表功能取消：成员改从共享记录动态收集；常用好友=本机 pin 的 uid（置顶⭐）
+let shareFavMembers = [];    // 常用好友 uid 数组（本机设置 share_fav_members）
+let shareCurMember = "";     // 当前筛选成员 uid（""=全部成员）
+let shareMemberList = [];    // 上次检索结果收集的成员 [{uid, name}]（含我）
 let shareTab = "up";
 function shareTabSet(t){
   shareTab = t;
@@ -4301,7 +4297,7 @@ function _shareKindFor(){   // 当前专报管理页签 → 共享 kind
 }
 let sharePick = new Set();   // v2.21.6 弹窗内勾选集（kind:id 字符串）
 async function shareModalOpen(forceKind){
-  try{ const c = await api("/api/share/config"); shareFriends = c.share_friends||[]; }catch(e){}
+  try{ const c = await api("/api/share/config"); shareFavMembers = c.fav_members||[]; }catch(e){}
   // v2.21.7 修复：从自定义专报浮窗进入时先收起它（两个模态同层叠加会互相遮挡）
   if(forceKind === "custom"){
     try{ custClose(); }catch(e){}
@@ -4364,17 +4360,70 @@ async function shareUploadRun(){
   } finally { btn.disabled = false; }
 }
 async function shareFindInit(){
-  const sel = $("#shareFindUid");
-  const cur = sel.value;
-  const mine = $("#set_share_uid") ? $("#set_share_uid").value.trim() : "";
-  sel.innerHTML = '<option value="">全部成员</option>'
-    + (mine ? `<option value="${esc(mine)}">我的共享（${esc(mine)}）</option>` : "")
-    + shareFriends.map(f=>`<option value="${esc(f.uid)}">${esc(f.name||f.uid)}（${esc(f.uid)}）</option>`).join("");
-  sel.value = cur;
+  // v2.21.9：成员筛选 chips（常用好友置顶⭐）在 shareFindRun 结果后渲染
   shareFindRun();
 }
+function _shareMembersRender(recs, myUid){
+  const box = $("#shareMemberChips"); if(!box) return;
+  const byUid = {};
+  (recs||[]).forEach(f=>{
+    const uid = (f.share_uid||"").trim(); if(!uid) return;
+    const nm = (f.share_name||"").trim();
+    if(!byUid[uid]) byUid[uid] = {uid, name: nm};
+    else if(nm && !byUid[uid].name) byUid[uid].name = nm;
+  });
+  (shareFavMembers||[]).forEach(uid=>{   // 常用好友即使被关键词滤掉也保留在成员区
+    if(!byUid[uid]) byUid[uid] = {uid, name: ""};
+  });
+  const members = Object.values(byUid).sort((a,b)=>{
+    const fa = shareFavMembers.includes(a.uid)?0:1, fb = shareFavMembers.includes(b.uid)?0:1;
+    if(fa!==fb) return fa-fb;
+    return (a.name||a.uid).localeCompare(b.name||b.uid, "zh");
+  });
+  shareMemberList = members;
+  const chip = (uid, label, fav, cur)=>
+    `<button class="chip ${cur?"on":""}" style="padding:3px 10px;font-size:12px" onclick="shareMemberPick('${esc((uid||"").replace(/'/g,""))}')">${fav?"⭐ ":""}${esc(label)}</button>`;
+  box.innerHTML =
+    chip("", "全部成员", false, !shareCurMember) +
+    members.map(m => chip(m.uid,
+      (m.name && m.name !== m.uid ? `${m.name}（${m.uid}）` : m.uid),
+      shareFavMembers.includes(m.uid), shareCurMember === m.uid)).join("");
+}
+function shareMemberPick(uid){
+  shareCurMember = uid;
+  shareFindRun();
+}
+async function shareFavToggle(uid){
+  uid = (uid||"").trim(); if(!uid) return;
+  const i = shareFavMembers.indexOf(uid);
+  if(i >= 0){ shareFavMembers.splice(i,1); toast("已移出常用好友"); }
+  else { shareFavMembers.push(uid); shareFavMembers = shareFavMembers.slice(-20); toast("已加入常用好友（⭐置顶，成员区可快捷筛选）"); }
+  try{ await api("/api/share/config", {method:"POST", body:JSON.stringify({fav_members: shareFavMembers})}); }catch(e){}
+  shareFindRun();
+}
+function shareOpenExternal(url){
+  // v2.21.9 标题点击：交系统默认浏览器下载直链 Word
+  api("/api/open_external", {method:"POST", body:JSON.stringify({url})})
+    .then(r=>{ if(!r.ok) toast(r.error || "打开失败"); })
+    .catch(()=>toast("打开失败"));
+}
+async function shareCopyLink(ev, url){
+  // v2.21.9 标题右键：复制下载链接（clipboard API 优先，execCommand 兜底）
+  ev.preventDefault(); ev.stopPropagation();
+  let ok = false;
+  try{ await navigator.clipboard.writeText(url); ok = true; }
+  catch(e){
+    try{
+      const ta = document.createElement("textarea");
+      ta.value = url; ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.appendChild(ta); ta.select();
+      ok = document.execCommand("copy"); document.body.removeChild(ta);
+    }catch(e2){ ok = false; }
+  }
+  toast(ok ? "下载链接已复制" : "复制失败，请手动复制");
+}
 async function shareFindRun(){
-  const uid = $("#shareFindUid").value;
+  const uid = shareCurMember;
   const kw = $("#shareFindKw").value.trim();
   const box = $("#shareFindRows");
   box.innerHTML = '<span class="muted">检索中…</span>';
@@ -4382,18 +4431,28 @@ async function shareFindRun(){
   const myUid = r.my_uid || "";
   if(!r.ok){
     box.innerHTML = "";
+    $("#shareMemberChips").innerHTML = "";
     $("#shareFindMsg").textContent = "✕ " + (r.error || "检索失败");
     return;
   }
-  $("#shareFindMsg").textContent = r.records.length ? `共 ${r.records.length} 条记录` : "没有匹配的共享记录";
-  box.innerHTML = r.records.map(f=>{
-    const mine = f.share_uid === myUid;
+  const recs = r.records || [];
+  _shareMembersRender(recs, myUid);
+  $("#shareFindMsg").textContent = recs.length ? `共 ${recs.length} 条记录` : "没有匹配的共享记录";
+  box.innerHTML = recs.map(f=>{
+    const mine = !!myUid && f.share_uid === myUid;   // v2.21.9 仅本人记录可删（后端同样校验）
     const isFile = String(f.kind||"").startsWith("file");
+    const link = isFile ? (f.resurl||"") : "";
+    const title = esc(f.title||"（无标题）");
     return `<div style="border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-bottom:8px">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-        <b style="font-size:13.5px">${esc(f.title||"（无标题）")}</b>
+        ${link
+          ? `<b class="link" style="font-size:13.5px;cursor:pointer" title="点击：浏览器下载 Word｜右键：复制下载链接"
+               onclick="shareOpenExternal('${esc(link).replace(/'/g,"&#39;")}')"
+               oncontextmenu="shareCopyLink(event, '${esc(link).replace(/'/g,"&#39;")}')">${title}</b>`
+          : `<b style="font-size:13.5px">${title}</b>`}
         <span class="muted" style="font-size:12px">${f.issue_no?("第"+f.issue_no+"期"):"—"}</span>
-        <span class="tag ${mine?"match":"none"}">${mine?"我":"好友"} · ${esc(f.share_name||f.share_uid||"未知")}</span>
+        <span class="tag ${mine?"match":"none"}" style="cursor:pointer" title="点击：添加/移出常用好友（成员区⭐快捷筛选）"
+              onclick="shareFavToggle('${esc((f.share_uid||"").replace(/'/g,""))}')">${mine?"我":"好友"} · ${esc(f.share_name||f.share_uid||"未知")}</span>
         <span class="muted" style="font-size:11.5px">${esc((f.created_at||"").slice(0,16).replace("T"," "))}</span>
         <span style="flex:1"></span>
         ${isFile ? `<button class="sm" onclick="shareDownload('${esc((f.rid||"").replace(/'/g,""))}','${esc((f.resurl||"").replace(/'/g,"&#39;"))}','${esc((f.file_name||"").replace(/'/g,"&#39;"))}')">⤓ 下载 Word</button>` : ""}

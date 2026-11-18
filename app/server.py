@@ -1221,7 +1221,7 @@ class ShareConfigReq(BaseModel):
     apihz_table: str = ""       # v2.21.5 起不再使用（索引走网盘），保留字段兼容前端
     share_uid: str = ""
     share_display_name: str = ""
-    share_friends: str = ""     # JSON [{name, uid}]
+    fav_members: list = []      # v2.21.9 常用好友（uid 数组，检索窗口快捷筛选）；好友列表功能已取消
 
 
 @app.get("/api/share/config")
@@ -1236,14 +1236,23 @@ def api_share_config_get():
         "apihz_key_masked": d["key_masked"],
         "apihz_table": "", "share_uid": c["uid"],
         "share_display_name": db.get_setting("share_display_name") or "",
-        "share_friends": c["friends"],
+        "fav_members": _load_fav_members(),   # v2.21.9 常用好友（好友列表功能已取消）
     }
+
+
+def _load_fav_members() -> list:
+    """常用好友 uid 列表（本机设置，检索窗口快捷筛选用）。"""
+    try:
+        arr = json.loads(db.get_setting("share_fav_members") or "[]")
+        return [str(x) for x in arr if str(x).strip()][:20]
+    except (ValueError, TypeError):
+        return []
 
 
 @app.post("/api/share/config")
 def api_share_config_save(req: ShareConfigReq):
     # ID/KEY 走 DPAPI 加密存储（掩码值不覆盖；@@DEFAULT@@=把内置默认值加密入库）；
-    # uid/好友为普通设置；表 ID 已停用
+    # uid/常用好友为普通设置；表 ID 已停用；好友列表功能 v2.21.9 取消
     from app import share_apihz as sa
     if req.apihz_id and "…" not in req.apihz_id:
         val = sa._xor_decode(sa._DEF_ID_ENC) if req.apihz_id == "@@DEFAULT@@" else req.apihz_id.strip()
@@ -1255,8 +1264,13 @@ def api_share_config_save(req: ShareConfigReq):
     if uid:
         db.set_setting("share_uid", uid)
     db.set_setting("share_display_name", req.share_display_name.strip()[:20])
-    if req.share_friends:
-        db.set_setting("share_friends", req.share_friends)
+    if req.fav_members:
+        favs = []
+        for x in req.fav_members[:20]:
+            x = str(x).strip()[:40]
+            if x and x not in favs:
+                favs.append(x)
+        db.set_setting("share_fav_members", json.dumps(favs, ensure_ascii=False))
     db.log("share", "共享配置已更新")
     return {"ok": True}
 
@@ -1323,7 +1337,8 @@ def api_share_list(uid: str = "", q: str = ""):
         if q.strip():
             k = q.strip().lower()
             hay = " ".join(str(r.get(x) or "") for x in
-                           ("title", "note", "issue_no", "content")).lower()
+                           ("title", "note", "issue_no", "content",
+                            "share_name", "share_uid")).lower()   # v2.21.9 检索含用户名/显示名
             if k not in hay:
                 continue
         rows.append(r)
@@ -1422,6 +1437,27 @@ def api_share_upload(req: dict):
                 "id": int(it.get("id") or 0), "note": note} for it in items]
     ok, msg = run_in_background("share_upload", _job_share_upload, payload)
     return {"started": ok, "message": msg}
+
+
+class OpenExternalReq(BaseModel):
+    url: str
+
+
+@app.post("/api/open_external")
+def api_open_external(req: OpenExternalReq):
+    """v2.21.9 用系统默认浏览器打开外链（共享检索的标题点击/右键复制链接）。
+
+    只放行 http/https；webview 内部跳转对直链文件体验不可控（下载可能被
+    WebView2 拦或在应用内黑屏），统一交系统浏览器。"""
+    import webbrowser
+    u = (req.url or "").strip()
+    if not (u.startswith("http://") or u.startswith("https://")):
+        return {"ok": False, "error": "仅支持 http/https 链接"}
+    try:
+        webbrowser.open(u)
+        return {"ok": True}
+    except Exception:
+        return {"ok": False, "error": "浏览器打开失败，请手动复制链接"}
 
 
 class SourcePin(BaseModel):
@@ -1748,7 +1784,7 @@ def api_rsshub_check_update():
             j = r.json()
             latest = {"sha": (j.get("sha") or "")[:12],
                       "date": (j.get("commit", {}).get("committer", {}).get("date") or "")[:10]}
-    except (httpx.HTTPError, ValueError):
+    except Exception:   # v2.21.9 修复：原 except (httpx.HTTPError, …) 引用未绑定名，异常时自身 NameError
         latest = {}
     return {"ok": True, "local": local, "latest": latest, "bundled": True}
 

@@ -102,6 +102,20 @@ def _record_key(r: dict):
     return str(r.get("rid") or "")
 
 
+def _post(url: str, data: dict, timeout: int = 30):
+    """统一 POST；返回 (json|None, err)。便于测试拦截。
+    v2.21.9 补回：v2.21.7 裁剪时 _post 连同数据表函数一起被误删，
+    网盘上传/删除（pan.php/pandel.php 走 POST）全部 NameError——上次只按
+    "检索链路"验证未覆盖上传链路，本轮起用 pyflakes 全量未定义名检查。"""
+    try:
+        with httpx.Client(timeout=timeout, verify=False) as cli:
+            resp = cli.post(url, data=data)
+            resp.raise_for_status()
+            return resp.json(), None
+    except Exception as e:
+        return None, f"{type(e).__name__}: {str(e)[:120]}"
+
+
 def _index_url(creds: dict) -> str:
     """共享索引直链：网盘 URL 模式实测为 /file/{开发者ID}/{name}{type}。"""
     return f"{PAN_HOST}/file/{creds['id']}/{INDEX_FULL}"
