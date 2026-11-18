@@ -4728,13 +4728,23 @@ async function loadSources(){
       if(srcTab !== "picked"){ bar.style.display = "none"; }
       else {
         const picked = SOURCES_ALL.filter(s=>s.in_common===1 || s.in_common===true);
+        // v2.21.6b 归一：旧中文行（保险/养老、存款保险）并入「保险」
+        const norm = c => { const d = CAT_NAMES[c] || c; return (d === "保险/养老" || d === "存款保险") ? "保险" : d; };
         const counts = {__other: 0};
         picked.forEach(s=>{
           const c=(s.category||"").trim();
-          const d = c ? catName(c) : "__other";
+          const d = c ? norm(c) : "__other";
           counts[d] = (counts[d]||0) + 1;
         });
-        const names = Object.keys(counts).filter(k=>k!=="__other").sort((a,b)=>counts[b]-counts[a]);
+        // v2.21.6b 排序：内置分类按 CAT_ORDER 置前（央行/咨询/保险…），自定义按数量排后
+        const order = CAT_ORDER.map(k=>CAT_NAMES[k]);
+        const names = Object.keys(counts).filter(k=>k!=="__other").sort((a,b)=>{
+          const ia = order.indexOf(a), ib = order.indexOf(b);
+          if (ia >= 0 && ib >= 0) return ia - ib;
+          if (ia >= 0) return -1;
+          if (ib >= 0) return 1;
+          return counts[b] - counts[a];
+        });
         const btn = (val, label, on, c) => `<button class="chip${on?" on":""}" style="white-space:nowrap;display:inline-flex;align-items:center;gap:5px;padding:5px 14px" onclick="setSrcCatFilter('${val}')"><span>${esc(label)}</span><span style="font-size:11.5px;opacity:.72;font-weight:500">${c}</span></button>`;
         bar.innerHTML = btn("", "全部", !srcCatFilter, picked.length)
           + names.map(k=>btn(k, k, srcCatFilter===k, counts[k])).join("")
@@ -4755,9 +4765,14 @@ async function loadSources(){
   if(srcTab === "picked"){
     // v2.13.5 精选信源：已加入精选（原常用 in_common）的全部源（横跨预置/参考/自定义）
     shown = SOURCES_ALL.filter(s=>s.in_common===1 || s.in_common===true);
-    if(srcCatFilter){   // v2.21.1 分类筛选；v2.21.2 按显示名聚合（旧英文 key 归一）
-      shown = shown.filter(s => srcCatFilter === "__other"
-        ? !(s.category||"").trim() : catName((s.category||"").trim()) === srcCatFilter);
+    if(srcCatFilter){   // v2.21.1 分类筛选；v2.21.6b 归一（旧 key 与旧中文名都并入默认名）
+      shown = shown.filter(s => {
+        const c = (s.category||"").trim();
+        if (srcCatFilter === "__other") return !c;
+        let d = CAT_NAMES[c] || c;
+        if (d === "保险/养老" || d === "存款保险") d = "保险";
+        return d === srcCatFilter;
+      });
     }
   } else if(srcTab === "common"){
     // v2.21 全部信源=所有信源（不分组过滤；预置/参考/自定义，含未精选与停用）
@@ -4841,7 +4856,7 @@ async function loadSources(){
       <td>${s.key==="ai_search"
         ? `<label class="switch" title="虚拟归集信源，不参与采集"><input type="checkbox" disabled><span class="slider"></span></label>`
         : `<label class="switch"><input type="checkbox" ${s.enabled?"checked":""} onchange="toggleSrc('${s.key}',this.checked)"><span class="slider"></span></label>`}</td>
-      <td><span class="link" title="点击修改显示名称" style="cursor:pointer" onclick="renameSource('${s.key}', '${esc(s.name_cn).replace(/'/g,"&#39;")}')">${esc(s.name_cn)}</span><div class="muted">${esc(s.name_en)} · ${cat[s.category]||s.category}${srcTab==="picked" ? ` · <span style="cursor:pointer;color:var(--teal)" title="改分类" onclick="pickSrcCategory('${s.key}', false)">${esc(s.category||"其他")}</span>` : ""}</div></td>
+      <td><span class="link" title="点击修改显示名称" style="cursor:pointer" onclick="renameSource('${s.key}', '${esc(s.name_cn).replace(/'/g,"&#39;")}')">${esc(s.name_cn)}</span><div class="muted">${esc(s.name_en)} · ${cat[s.category]||s.category}${srcTab==="picked" ? ` · <span style="cursor:pointer;color:var(--teal)" title="改分类" onclick="pickSrcCategory('${s.key}', false)">${(() => { let d = cat[s.category]||s.category||"其他"; if(d==="保险/养老"||d==="存款保险") d = "保险"; return esc(d); })()}</span>` : ""}</div></td>
       <td>${{rss:"RSS",html:"网页",sitemap:"站点地图"}[s.mode]||s.mode}</td>
       <td>${commonBtn}<div class="muted" style="font-size:11px;margin-top:3px">${verifyTag}</div></td>
       <td style="font-size:12px">${conn}</td>
