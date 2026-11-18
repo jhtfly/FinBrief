@@ -4344,9 +4344,9 @@ async function shareFindRun(){
         <span class="tag ${mine?"match":"none"}">${mine?"我":"好友"} · ${esc(f.share_name||f.share_uid||"未知")}</span>
         <span class="muted" style="font-size:11.5px">${esc((f.created_at||"").slice(0,16).replace("T"," "))}</span>
         <span style="flex:1"></span>
-        ${isFile ? `<button class="sm" onclick="shareDownload(${f.id},'${esc((f.resurl||"").replace(/'/g,"&#39;"))}','${esc((f.file_name||"").replace(/'/g,"&#39;"))}')">⤓ 下载 Word</button>` : ""}
-        ${!isFile && (f.content||"") ? `<button class="sm ghost" onclick="shareShowText(${f.id})">📄 查看全文</button>` : ""}
-        ${mine ? `<button class="sm ghost" style="color:#b43030" onclick="shareDeleteRec(${f.id})">删除</button>` : ""}
+        ${isFile ? `<button class="sm" onclick="shareDownload('${esc((f.rid||"").replace(/'/g,""))}','${esc((f.resurl||"").replace(/'/g,"&#39;"))}','${esc((f.file_name||"").replace(/'/g,"&#39;"))}')">⤓ 下载 Word</button>` : ""}
+        ${!isFile && (f.content||"") ? `<button class="sm ghost" onclick="shareShowText('${esc((f.rid||"").replace(/'/g,""))}')">📄 查看全文</button>` : ""}
+        ${mine ? `<button class="sm ghost" style="color:#b43030" onclick="shareDeleteRec('${esc((f.rid||"").replace(/'/g,""))}')">删除</button>` : ""}
       </div>
       ${f.note ? `<div class="muted" style="font-size:12px;margin-top:4px">${esc(String(f.note).slice(0,200))}</div>` : ""}
     </div>`;
