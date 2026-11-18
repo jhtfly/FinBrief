@@ -1119,6 +1119,8 @@ DEFAULT_CAT = {
     "智库": "thinktank", "财经媒体": "media", "保险/养老": "ins",
     "存款保险": "dep", "政府机构": "gov", "其他": "other",
 }
+# v2.21.6 保险合并显示（保险/养老 + 存款保险 → 保险）：改/删"保险"时同步命中历史 key
+DEFAULT_CAT_ALIASES = {"保险": ["ins", "dep", "保险/养老", "存款保险"]}
 
 
 def _load_cat_list() -> list:
@@ -1179,7 +1181,7 @@ def api_category_mgr(req: CatMgrReq):
         if new in lst or new in DEFAULT_CAT:
             return {"ok": False, "error": f"分类「{new}」已存在"}
         old_key = DEFAULT_CAT.get(nm, "")
-        storages = [s for s in {nm, old_key} if s]
+        storages = [s for s in {nm, old_key, *(DEFAULT_CAT_ALIASES.get(nm, []))} if s]
         ph = ",".join("?" for _ in storages)
         with db.get_conn() as conn:
             cur = conn.execute(f"UPDATE sources SET category=? WHERE category IN ({ph})",
@@ -1194,7 +1196,7 @@ def api_category_mgr(req: CatMgrReq):
         return {"ok": True, "list": lst, "moved": moved}
     if op == "delete":
         old_key = DEFAULT_CAT.get(nm, "")
-        storages = [s for s in {nm, old_key} if s]
+        storages = [s for s in {nm, old_key, *(DEFAULT_CAT_ALIASES.get(nm, []))} if s]
         ph = ",".join("?" for _ in storages)
         with db.get_conn() as conn:
             cur = conn.execute(f"UPDATE sources SET category='' WHERE category IN ({ph})",
@@ -1257,11 +1259,19 @@ def api_share_config_save(req: ShareConfigReq):
 
 @app.post("/api/share/test")
 def api_share_test():
-    """测试连接 = 拉共享索引（404 视为正常空圈）。"""
+    """测试连接 = 拉共享索引（404 视为正常空圈）+ 轻云数据表探测（force，结果缓存 24h）。"""
     from app import share_apihz as sa
-    ok, err = sa.test_creds(sa.get_creds())
-    return ({"ok": True, "msg": "网盘与共享索引访问正常"} if ok
-            else {"ok": False, "error": err})
+    c = sa.get_creds()
+    ok, err = sa.test_creds(c)
+    if not ok:
+        return {"ok": False, "error": err}
+    table_on = sa.table_ready(c, force=True)
+    msg = "网盘与共享索引访问正常"
+    if table_on:
+        msg += "；轻云数据表已启用（双写增强检索）"
+    else:
+        msg += "；轻云数据表未启用（后台表需含 share_uid 等 10 字段后自动启用，不影响共享）"
+    return {"ok": True, "msg": msg}
 
 
 @app.post("/api/share/quick")
@@ -1327,6 +1337,14 @@ def api_share_list(uid: str = "", q: str = ""):
     if err:
         return {"ok": False, "error": err, "records": []}
     rows = []
+    # v2.21.6 数据表行并入（探测可用时；rid=db:{t_id} 便于删除端点统一处理）
+    try:
+        if sa.table_ready(c):
+            dbrows, derr = sa.record_query(c, uid, q, 100)
+            if not derr:
+                recs = list(recs or []) + dbrows
+    except Exception:
+        pass
     for r in (recs or []):
         if uid.strip() and (r.get("share_uid") or "").strip() != uid.strip():
             continue
@@ -1390,6 +1408,18 @@ def api_share_delete(req: dict):
     if not rid:
         return {"ok": False, "error": "缺少记录 ID"}
     c = sa.get_creds()
+    if rid.startswith("db:"):   # v2.21.6 数据表行删除
+        try:
+            t_id = int(rid[3:])
+        except ValueError:
+            return {"ok": False, "error": "记录 ID 无效"}
+        if not sa.table_ready(c):
+            return {"ok": False, "error": "轻云数据表未启用"}
+        err = sa.record_delete(c, t_id, c["uid"])
+        if err:
+            return {"ok": False, "error": f"删除失败：{err}"}
+        db.log("share", f"数据表共享记录已删除：t_id={t_id}")
+        return {"ok": True, "pan_msg": "无网盘文件"}
     r = sa.share_delete_record(c, rid, c["uid"])
     if r.get("ok"):
         db.log("share", f"共享记录已删除：rid={rid}（网盘：{r.get('pan_msg') or '成功'}）")
@@ -2920,9 +2950,27 @@ def api_archive_ai_classify(req: ArchiveClassifyReq):
     return {"started": ok, "message": msg}
 
 
+def _clean_readme_for_help(text: str) -> str:
+    """v2.21.6 README → 说明书清洗：剥 HTML 标签行（div/img 等会以原文显示成
+    "乱码"）、GitHub 徽章行（!Platform !Python …）；图片引用留占位说明。"""
+    import re as _re
+    out = []
+    for ln in text.split("\n"):
+        t = ln.strip()
+        if _re.match(r"^<\s*(div|/div|img|p|/p|span|/span|a|/a|details|summary|/details|br)", t, _re.I):
+            continue   # 纯 HTML 标签行（徽章容器/截图/对齐）
+        if t.startswith("!") and t.count("!") >= 2 and not _re.match(r"^!\[", t):
+            continue   # !Platform !Python … 徽章行
+        t = _re.sub(r"!\[[^\]]*\]\([^)]*\)", "[截图，见 GitHub 首页]", t)   # ![alt](url)
+        t = _re.sub(r"<img[^>]*/?>", "", t)
+        t = _re.sub(r"<[^>]+>", "", t)
+        out.append(t)
+    return "\n".join(out)
+
+
 @app.get("/api/help_doc")
 def api_help_doc():
-    """v2.13.5 使用说明书浮窗数据源：交付目录 README.md。"""
+    """v2.13.5 使用说明书浮窗数据源：交付目录 README.md（v2.21.6 起清洗 GitHub 标记）。"""
     cands = []
     try:
         if getattr(sys, "frozen", False):
@@ -2935,7 +2983,7 @@ def api_help_doc():
         try:
             if f and os.path.isfile(f):
                 with open(f, encoding="utf-8") as fh:
-                    return {"ok": True, "text": fh.read()}
+                    return {"ok": True, "text": _clean_readme_for_help(fh.read())}
         except (OSError, ValueError):
             continue
     fallback = "# 使用说明\n\n未能读取使用说明文件（README.md）；\n请联系创作者或在交付目录确认该文件存在。"

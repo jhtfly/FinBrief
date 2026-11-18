@@ -877,6 +877,7 @@ body.dark .diff-new{background:rgba(13,148,136,.22); color:#5eead4;}
     </div>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
       <button id="btnCustomGo">✦ 开始 AI 编译</button>
+      <button class="ghost sm" onclick="shareModalOpen('custom')" title="把已生成的自定义专报上传共享给圈内好友">⇪ 共享已生成的专报</button>
       <span class="muted" style="font-size:12.5px">任务在“任务中心”可查进度，可在运行中打断；编好后出现在“综合专报”页签，编辑/取证/导出与常规专报一致</span>
       <span style="flex:1"></span>
       <button class="ghost sm" onclick="custClearAll()">清空重来</button>
@@ -1104,8 +1105,19 @@ body.dark .diff-new{background:rgba(13,148,136,.22); color:#5eead4;}
       <button class="chip" id="shareTabFind" onclick="shareTabSet('find')">🔍 检索共享</button>
     </div>
     <div id="sharePaneUp">
-      <div class="pt-sub" style="margin-bottom:6px">把勾选的专报 Word 上传到轻量网盘并在轻云数据表登记共享记录（圈内好友可检索下载）。未导出的专报会自动先导出。</div>
-      <div id="shareUpList" class="pt-sub" style="max-height:26vh;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:8px"></div>
+      <!-- v2.21.6 弹窗内自选专报：类型下拉 + 快速检索栏 + 多选列表（默认带入表格已勾选） -->
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+        <select id="shareUpKind" onchange="shareUpRender()" style="width:150px">
+          <option value="single">单篇专报</option>
+          <option value="multi">综合专报</option>
+          <option value="custom">自定义专报</option>
+        </select>
+        <input type="text" id="shareUpKw" placeholder="快速检索：标题 / 期号" style="flex:1;min-width:200px"
+               oninput="shareUpRender()">
+        <button class="ghost sm" onclick="shareUpAll(true)">全选</button>
+        <button class="ghost sm" onclick="shareUpAll(false)">清空</button>
+      </div>
+      <div id="shareUpList" style="max-height:30vh;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:8px"></div>
       <div style="display:flex;gap:10px;margin-top:10px;align-items:center">
         <input type="text" id="shareNote" placeholder="共享说明（可选，随记录显示）" style="flex:1">
         <button id="btnShareUpload" onclick="shareUploadRun()">上传共享（<span id="shareUpN">0</span> 份）</button>
@@ -1545,33 +1557,33 @@ body.dark .diff-new{background:rgba(13,148,136,.22); color:#5eead4;}
         </details>
       </div>
       <!-- v2.13.6 「功能简介与使用说明」卡取消（说明已并入「📖 使用说明」浮窗） -->
-    </div>
-  </div>
-  <div class="card" id="shareCfgCard" style="margin-top:18px">
-    <h3 style="display:flex;align-items:center;gap:10px">专报共享<span style="flex:1"></span>
-      <span class="muted" style="font-size:12px" id="shareCfgState"></span></h3>
-    <div class="d" style="color:var(--sub);font-size:12px;line-height:1.6;margin-bottom:8px">
-      专报 Word 走接口盒子（apihz.cn）的<b>轻量网盘</b>共享，共享记录集中在网盘的共享索引里；
-      圈内好友共用同一开发者 ID/KEY，按「我的分享用户名」辨认。ID/KEY 加密存储、界面只显掩码。</div>
-    <div class="grid2" style="row-gap:10px">
-      <label class="form"><span class="t">开发者 ID / 通讯 KEY（留空=用默认或已存值）</span>
-        <div style="display:flex;gap:6px">
-          <input type="text" id="set_apihz_id" placeholder="默认 10…65" style="flex:1">
-          <input type="password" id="set_apihz_key" placeholder="默认 6abd…9f21" autocomplete="new-password" style="flex:1">
-        </div></label>
-      <label class="form"><span class="t">我的分享用户名 / 显示名</span>
-        <div style="display:flex;gap:6px">
-          <input type="text" id="set_share_uid" placeholder="如 fb-a3f2c81d（自动生成）" style="flex:1">
-          <input type="text" id="set_share_display_name" placeholder="显示名（可选）" style="flex:1">
-        </div></label>
-    </div>
-    <label class="form" style="margin-top:8px"><span class="t">好友列表（每行：昵称,对方用户名）</span>
-      <textarea class="prompt" id="set_share_friends" style="min-height:56px" placeholder="李四,li-04"></textarea></label>
-    <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
-      <button onclick="saveShareCfg()">保存</button>
-      <button class="ghost" onclick="applyDefaultShareCfg()">一键采用默认 ID/KEY</button>
-      <button class="ghost" onclick="testShareCfg()">测试连接</button>
-      <span id="shareCfgMsg" class="muted" style="font-size:12.5px;align-self:center"></span>
+      <div class="card" id="shareCfgCard" style="margin-top:2px">
+        <h3 style="display:flex;align-items:center;gap:10px">专报共享<span style="flex:1"></span>
+          <span class="muted" style="font-size:12px" id="shareCfgState"></span></h3>
+        <div class="d" style="color:var(--sub);font-size:12px;line-height:1.6;margin-bottom:8px">
+          专报 Word 走接口盒子（apihz.cn）的<b>轻量网盘</b>共享，共享记录集中在网盘的共享索引里；
+          圈内好友共用同一开发者 ID/KEY，按「我的分享用户名」辨认。ID/KEY 加密存储、界面只显掩码。</div>
+        <div class="grid2" style="row-gap:10px">
+          <label class="form"><span class="t">开发者 ID / 通讯 KEY（留空=用默认或已存值）</span>
+            <div style="display:flex;gap:6px">
+              <input type="text" id="set_apihz_id" placeholder="默认 10…65" style="flex:1">
+              <input type="password" id="set_apihz_key" placeholder="默认 6abd…9f21" autocomplete="new-password" style="flex:1">
+            </div></label>
+          <label class="form"><span class="t">我的分享用户名 / 显示名</span>
+            <div style="display:flex;gap:6px">
+              <input type="text" id="set_share_uid" placeholder="如 fb-a3f2c81d（自动生成）" style="flex:1">
+              <input type="text" id="set_share_display_name" placeholder="显示名（可选）" style="flex:1">
+            </div></label>
+        </div>
+        <label class="form" style="margin-top:8px"><span class="t">好友列表（每行：昵称,对方用户名）</span>
+          <textarea class="prompt" id="set_share_friends" style="min-height:56px" placeholder="李四,li-04"></textarea></label>
+        <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+          <button onclick="saveShareCfg()">保存</button>
+          <button class="ghost" onclick="applyDefaultShareCfg()">一键采用默认 ID/KEY</button>
+          <button class="ghost" onclick="testShareCfg()">测试连接</button>
+          <span id="shareCfgMsg" class="muted" style="font-size:12.5px;align-self:center"></span>
+        </div>
+      </div>
     </div>
   </div>
   <div class="card" id="aboutCard" style="margin-top:18px">
@@ -4243,31 +4255,59 @@ function shareTabSet(t){
 function _shareKindFor(){   // 当前专报管理页签 → 共享 kind
   return listMode==="single" ? "single" : "multi";
 }
-async function shareModalOpen(){
-  const items = selReports.size ? [...selReports] : [];
-  const kind = _shareKindFor();
-  const pool = kind==="single" ? REPORTS : MULTI_REPORTS;
-  $("#shareUpList").innerHTML = items.length
-    ? items.map(id=>{ const r = pool.find(x=>x.id===id); return r ? `<div style="padding:2px 0">· 第${r.issue_no||"?"}期 ｜ ${esc((r.title||"").slice(0,60))}</div>` : ""; }).join("")
-    : '<span class="muted">当前页签未勾选任何专报——可关闭本窗在表格里勾选（支持 Ctrl 单选/全选），或到「单篇/综合/自定义」页签重新勾选。</span>';
-  $("#shareUpN").textContent = items.length;
-  $("#shareUpMsg").textContent = "";
+let sharePick = new Set();   // v2.21.6 弹窗内勾选集（kind:id 字符串）
+async function shareModalOpen(forceKind){
   try{ const c = await api("/api/share/config"); shareFriends = c.share_friends||[]; }catch(e){}
+  const sel = $("#shareUpKind");
+  sel.value = forceKind || _shareKindFor();   // 默认跟随当前页签（自定义浮窗进来即 custom）
+  sharePick = new Set();
+  const seed = (sel.value === "single" ? [...selReports] : [...selMulti]);
+  seed.forEach(id => sharePick.add(sel.value + ":" + id));   // 表格勾选带入
+  shareUpRender();
   shareTabSet("up");
+  $("#shareUpMsg").textContent = "";
   $("#shareBg").classList.add("on");
 }
+function _sharePool(kind){
+  return kind === "single" ? REPORTS : MULTI_REPORTS.filter(r => kind === "multi" ? !r.custom : !!r.custom);
+}
+function shareUpRender(){
+  const kind = $("#shareUpKind").value;
+  const kw = ($("#shareUpKw").value || "").trim().toLowerCase();
+  const pool = _sharePool(kind).filter(r =>
+    !kw || ((r.title || "") + (r.issue_no || "")).toLowerCase().includes(kw));
+  $("#shareUpList").innerHTML = pool.length ? pool.map(r =>
+    `<label style="display:flex;align-items:center;gap:8px;padding:4px 2px;cursor:pointer">
+      <input type="checkbox" ${sharePick.has(kind + ":" + r.id) ? "checked" : ""}
+             onchange="shareUpToggle('${kind}', ${r.id}, this.checked)">
+      <span>第${r.issue_no || "—"}期 ｜ ${esc((r.title || "（无标题）").slice(0, 72))}</span>
+      <span class="muted" style="font-size:11.5px">${r.status === "exported" ? "已导出" : "草稿"}</span>
+    </label>`).join("")
+    : '<span class="muted">（无匹配专报）</span>';
+  $("#shareUpN").textContent = sharePick.size;
+}
+function shareUpToggle(kind, id, on){
+  on ? sharePick.add(kind + ":" + id) : sharePick.delete(kind + ":" + id);
+  $("#shareUpN").textContent = sharePick.size;
+}
+function shareUpAll(on){
+  const kind = $("#shareUpKind").value;
+  const kw = ($("#shareUpKw").value || "").trim().toLowerCase();
+  _sharePool(kind).filter(r => !kw || ((r.title || "") + (r.issue_no || "")).toLowerCase().includes(kw))
+    .forEach(r => on ? sharePick.add(kind + ":" + r.id) : sharePick.delete(kind + ":" + r.id));
+  shareUpRender();
+}
 async function shareUploadRun(){
-  const ids = [...selReports];
-  if(!ids.length){ toast("请先在专报表格里勾选要共享的专报"); return; }
-  const kind = _shareKindFor();
+  const items = [...sharePick].map(k => { const [kind, id] = k.split(":"); return {kind, id: +id}; });
+  if(!items.length){ toast("请先勾选要共享的专报"); return; }
   const note = $("#shareNote").value.trim();
-  if(!confirm(`将把勾选的 ${ids.length} 份专报上传共享？（未导出的会自动先导出）\n\n提醒：共享 Word 的直链是公开地址——知道链接的人都能下载；圈内好友通过共享凭据检索。`)) return;
+  if(!confirm(`将把勾选的 ${items.length} 份专报上传共享？（未导出的会自动先导出）\n\n提醒：共享 Word 的直链是公开地址——知道链接的人都能下载；圈内好友通过共享凭据检索。`)) return;
   const btn = $("#btnShareUpload"); btn.disabled = true;
   $("#shareUpMsg").textContent = "已提交上传任务（串行上传，每份间隔约 7 秒防频次限制），进度见任务中心…";
   try{
     const r = await api("/api/share/upload", {method:"POST",
-      body: JSON.stringify({items: ids.map(id=>({kind, id})), note})});
-    if(r && r.started){ taskToastStart(r, "专报共享上传已提交…"); }
+      body: JSON.stringify({items, note})});
+    if(r && r.started){ taskToastStart(r, "专报共享上传已提交…"); sharePick.clear(); shareUpRender(); }
     else toast((r && r.message) || "提交失败");
   } finally { btn.disabled = false; }
 }
@@ -4536,10 +4576,11 @@ async function resetPrompt(kind){
 /* ---------- 信源管理 ---------- */
 let SOURCES_ALL = [], srcTab = "common", srcCatFilter = "";   // v2.21.1 分类筛选状态
 // v2.21 精选分类（可自定义名；映射为默认中文名）
+// v2.21.6 用户指定：央行与监管、咨询/评级/投行、保险（保险/养老+存款保险合并）三类置前
 const CAT_NAMES = {cb_reg:"央行与监管",intl:"国际组织",cons:"咨询/评级/投行",
   bank:"银行与评级",market:"市场与投资",tech:"科技与AI",thinktank:"智库",
-  media:"财经媒体",ins:"保险/养老",dep:"存款保险",gov:"政府机构",other:"其他"};
-const CAT_ORDER = ["cb_reg","intl","bank","cons","market","media","tech","thinktank","ins","dep","gov","other"];
+  media:"财经媒体",ins:"保险",dep:"保险",gov:"政府机构",other:"其他"};
+const CAT_ORDER = ["cb_reg","cons","ins","intl","bank","market","tech","thinktank","media","gov","other"];
 function catName(c){ return CAT_NAMES[c] || c || CAT_NAMES.other; }
 function catDisp(c){ return CAT_NAMES[c] || c || ""; }   // v2.21.2：仅显示归一（空不改名）
 function setSrcCatFilter(v){   // v2.21.1 精选分类筛选切换（重渲染列表）
