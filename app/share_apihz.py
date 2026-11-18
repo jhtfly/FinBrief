@@ -29,7 +29,6 @@ PAN_HOST = "https://pan.erguanmingmin.com"
 # 开源后可被还原属已知限制，用户已在设置页确认采用默认信息方案）
 _DEF_KEY = bytes([0x5A])
 _DEF_ID_ENC = "kjjkmllo"
-_DEF_TABLE_ENC = "njk>bkh?lihobo?98cck><??l8bkh;;o"   # v2.21.6 轻云数据表（用户已建；字段未知时探测后启用）
 _DEF_KEY_ENC = "l;8>?no>?;?nc?8>moknk<lh89mic<hk"
 
 def _xor_decode(enc: str) -> str:
@@ -45,229 +44,9 @@ def get_creds() -> dict:
     return {
         "id": cfg_id or _xor_decode(_DEF_ID_ENC),
         "key": cfg_key or _xor_decode(_DEF_KEY_ENC),
-        "table": (db.get_setting("apihz_table") or "").strip() or _xor_decode(_DEF_TABLE_ENC),
         "uid": uid or _default_uid(),
         "friends": _parse_friends(db.get_setting("share_friends") or ""),
     }
-
-
-_TABLE_FIELDS = ["share_uid", "share_name", "kind", "title", "issue_no",
-                 "file_name", "resurl", "content", "note", "created_at"]
-
-
-def esc(v: str) -> str:
-    """SQL 值转义：单引号翻倍；半角 + 换全角＋（qyun 网关会把 + 吃成空格）。"""
-    return str(v or "").replace("'", "''").replace("+", "＋")
-
-
-def qyun(creds: dict, sql: str, op: int):
-    """轻云数据表执行：op=1 增删改 / 2 查询。返回 (data|None, msg, err)。"""
-    if not (creds.get("id") and creds.get("key") and creds.get("table")):
-        return None, "", "凭据或表 ID 缺失"
-    data, err = _post(QYUN_URL, {"id": creds["id"], "key": creds["key"], "type": str(op),
-                                 "name": creds["table"], "sql": sql})
-    if err:
-        return None, "", err
-    if not isinstance(data, dict):
-        return None, "", "接口返回异常"
-    if data.get("code") != 200:
-        return None, str(data.get("msg") or "接口返回错误"), None
-    return data.get("data"), str(data.get("msg") or ""), None
-
-
-QYUN_URL = "https://cn.apihz.cn/api/cunchu/qyun.php"
-
-
-def table_ready(creds: dict, force: bool = False) -> bool:
-    """轻云数据表是否可写（探测：INSERT 试写→SELECT→DELETE；结果缓存 24h）。
-    用户在后台补好字段后，点「测试连接」即自动探测启用（无需重启）。"""
-    import json as _jj
-    from app import db
-    try:
-        st = _jj.loads(db.get_setting("apihz_table_probe") or "{}")
-    except (ValueError, TypeError):
-        st = {}
-    import time as _t
-    if not force and st.get("ready") is not None and (_t.time() - float(st.get("ts") or 0)) < 86400:
-        return bool(st.get("ready"))
-    cols = ",".join(f"`{f}`" for f in _TABLE_FIELDS)
-    _, msg, err = qyun(creds, f"INSERT INTO `{creds['table']}` ({cols}) "
-                              f"VALUES ('__probe__','','text','探测','','','','__probe__','','{db.now_iso()}')", 1)
-    if err:
-        return False
-    data, _, err2 = qyun(creds, f"SELECT `id` FROM `{creds['table']}` "
-                                f"WHERE `share_uid`='__probe__' ORDER BY `id` DESC LIMIT 1", 2)
-    tid = None
-    if not err2 and data:
-        try:
-            tid = int(data[0].get("id"))
-        except (TypeError, ValueError):
-            tid = None
-    if tid:
-        qyun(creds, f"DELETE FROM `{creds['table']}` WHERE `id`={tid}", 1)
-    db.set_setting("apihz_table_probe", _jj.dumps({"ready": bool(tid), "ts": _t.time()}))
-    return bool(tid)
-
-
-def record_insert(creds: dict, rec: dict):
-    cols = ",".join(f"`{f}`" for f in _TABLE_FIELDS)
-    vals = ",".join(f"'{esc(rec.get(f, ''))}'" for f in _TABLE_FIELDS)
-    return qyun(creds, f"INSERT INTO `{creds['table']}` ({cols}) VALUES ({vals})", 1)
-
-
-def record_query(creds: dict, uid: str = "", kw: str = "", limit: int = 100):
-    where = "WHERE 1=1"
-    if uid.strip():
-        where += f" AND `share_uid`='{esc(uid.strip())}'"
-    if kw.strip():
-        k = esc(kw.strip())
-        where += f" AND (`title` LIKE '%{k}%' OR `note` LIKE '%{k}%' OR `issue_no` LIKE '%{k}%' OR `content` LIKE '%{k}%')"
-    sql = (f"SELECT `id`,{','.join(f'`{f}`' for f in _TABLE_FIELDS)} "
-           f"FROM `{creds['table']}` {where} ORDER BY `id` DESC LIMIT {int(limit)}")
-    data, msg, err = qyun(creds, sql, 2)
-    if err or not isinstance(data, list):
-        return [], err or "接口返回异常"
-    rows = []
-    for r in data:
-        try:
-            rows.append({**{f: r.get(f, "") for f in _TABLE_FIELDS},
-                         "t_id": int(r.get("id") or 0), "rid": f"db:{r.get('id')}"})
-        except (TypeError, ValueError):
-            continue
-    return rows, None
-
-
-def record_delete(creds: dict, t_id: int, uid: str):
-    _, msg, err = qyun(creds, f"DELETE FROM `{creds['table']}` "
-                              f"WHERE `id`={int(t_id)} AND `share_uid`='{esc(uid)}'", 1)
-    return err
-
-
-def _default_uid() -> str:
-    """首次自动生成稳定个人标识（如 fb-a3f2c81d），存 DB 持久化。"""
-    from app import db
-    uid = db.get_setting("share_uid") or ""
-    if uid:
-        return uid
-    uid = "fb-" + _secrets.token_hex(4)
-    db.set_setting("share_uid", uid)
-    return uid
-
-
-def default_creds_masked() -> dict:
-    d = get_creds()
-    return {
-        "using_default": not (db_has_custom_creds()),
-        "id_masked": _mask(d["id"]),
-        "key_masked": _mask(d["key"]),
-        "uid": d["uid"],
-    }
-
-
-def db_has_custom_creds() -> bool:
-    from app import db
-    return bool(db.get_secret("apihz_id") and db.get_secret("apihz_key"))
-
-
-def _mask(v: str) -> str:
-    return (v[:2] + "…" + v[-2:]) if len(v) > 6 else v
-
-
-def creds_ready() -> bool:
-    return bool(get_creds()["id"] and get_creds()["key"])
-
-
-def _parse_friends(raw: str) -> list:
-    try:
-        arr = _j.loads(raw or "[]")
-        if isinstance(arr, list):
-            return [{"name": str(x.get("name", "")).strip()[:20],
-                     "uid": str(x.get("uid", "")).strip()[:40]}
-                    for x in arr if str(x.get("uid", "")).strip()]
-    except (ValueError, TypeError):
-        pass
-    return []
-
-
-def _post(url: str, data: dict, timeout: int = 30):
-    """统一 POST；返回 (json|None, err)。便于测试拦截。"""
-    try:
-        with httpx.Client(timeout=timeout, verify=False) as cli:
-            resp = cli.post(url, data=data)
-            resp.raise_for_status()
-            return resp.json(), None
-    except Exception as e:
-        return None, f"{type(e).__name__}: {str(e)[:120]}"
-
-
-def _index_url(creds: dict) -> str:
-    """共享索引直链：网盘 URL 模式实测为 /file/{开发者ID}/{name}{type}。"""
-    return f"{PAN_HOST}/file/{creds['id']}/{INDEX_FULL}"
-
-
-def index_fetch(creds: dict) -> tuple:
-    """拉取共享索引。返回 (records list, err)。404 视为空索引。"""
-    try:
-        with httpx.Client(timeout=20, verify=False, follow_redirects=True) as cli:
-            resp = cli.get(_index_url(creds))
-        if resp.status_code == 404:
-            return [], None
-        resp.raise_for_status()
-        obj = resp.json()
-        if isinstance(obj, dict) and isinstance(obj.get("records"), list):
-            recs = [r for r in obj["records"] if isinstance(r, dict)]
-            if recs:
-                _cache_save(recs)
-            return recs, None
-        return [], None
-    except httpx.HTTPError as e:
-        return None, f"{type(e).__name__}: {str(e)[:110]}"
-    except (ValueError, TypeError):
-        return [], None
-
-
-def _gen_rid() -> str:
-    """记录 ID：日期+时分秒+毫秒+6 位强随机 hex（同圈内唯一且字典序=时间序）。"""
-    import secrets
-    import time as _t
-    from app import db
-    return (db.now_iso().replace("-", "").replace("T", "").replace(":", "")[:14]
-            + f"{_t.time_ns() % 1000:03d}" + secrets.token_hex(3))
-
-
-def _cache_load() -> list:
-    """本地索引快照（每次成功写入/拉取时更新；CDN 延迟与误删时兜底）。"""
-    import json as _jj
-    from app import db
-    try:
-        arr = _jj.loads(db.get_setting("share_index_cache") or "[]")
-        return [r for r in arr if isinstance(r, dict)]
-    except (ValueError, TypeError):
-        return []
-
-
-def _cache_save(records: list) -> None:
-    import json as _jj
-    from app import db
-    db.set_setting("share_index_cache", _jj.dumps(records[-220:], ensure_ascii=False))
-
-
-def index_fetch_merged(creds: dict) -> tuple:
-    """远端索引 ∪ 本地快照（按 rid 并集、远端优先）——抵御 CDN 刷新延迟/误删。"""
-    recs, err = index_fetch(creds)
-    if err:
-        return None, err
-    cache = _cache_load()
-    if not cache:
-        return recs, None
-    by_rid = {}
-    for r in cache:
-        by_rid[str(r.get("rid"))] = r
-    for r in recs:
-        by_rid[str(r.get("rid"))] = r   # 远端覆盖同 rid
-    merged = list(by_rid.values())
-    merged = _trim(merged)
-    return merged, None
 
 
 def _record_key(r: dict):
@@ -381,7 +160,6 @@ def share_word_file(creds: dict, rid: str, title: str, issue: str,
     serr = index_save(creds, recs)
     if serr:
         return {"ok": False, "error": f"共享索引写入失败：{serr}", "resurl": resurl}
-    _dual_write(creds, recs[0])   # v2.21.6 数据表双写
     return {"ok": True, "resurl": resurl, "file_name": file_name}
 
 
@@ -403,20 +181,7 @@ def share_text_record(creds: dict, title: str, issue: str, content: str,
     serr = index_save(creds, recs)
     if serr:
         return {"ok": False, "error": f"共享索引写入失败：{serr}"}
-    _dual_write(creds, recs[0])   # v2.21.6 数据表双写（探测可用时）
     return {"ok": True}
-
-
-def _dual_write(creds: dict, rec: dict) -> None:
-    """数据表双写（table_ready 时）：失败仅记日志，不影响索引主链。"""
-    from app import db
-    try:
-        if table_ready(creds):
-            _, msg, err = record_insert(creds, rec)
-            if err:
-                db.log("share", f"数据表双写失败（记录仍在索引）：{msg[:80]}", "warn")
-    except Exception as e:   # 网络异常不阻塞主链
-        db.log("share", f"数据表双写异常：{type(e).__name__}", "warn")
 
 
 def share_delete_record(creds: dict, rid: str, uid: str) -> dict:
@@ -437,9 +202,6 @@ def share_delete_record(creds: dict, rid: str, uid: str) -> dict:
     serr = index_save(creds, new_recs)
     if serr:
         return {"ok": False, "error": f"共享索引写入失败：{serr}", "pan_msg": pan_msg}
-    t_id = target.get("t_id")   # v2.21.6 数据表行一并删（若双写过）
-    if t_id and table_ready(creds):
-        record_delete(creds, int(t_id), uid)
     return {"ok": True, "pan_msg": pan_msg}
 
 

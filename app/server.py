@@ -1259,72 +1259,29 @@ def api_share_config_save(req: ShareConfigReq):
 
 @app.post("/api/share/test")
 def api_share_test():
-    """测试连接 = 拉共享索引（404 视为正常空圈）+ 轻云数据表探测（force，结果缓存 24h）。"""
+    """测试连接 = 拉共享索引（404 视为正常空圈）。"""
     from app import share_apihz as sa
     c = sa.get_creds()
     ok, err = sa.test_creds(c)
     if not ok:
         return {"ok": False, "error": err}
-    table_on = sa.table_ready(c, force=True)
-    msg = "网盘与共享索引访问正常"
-    if table_on:
-        msg += "；轻云数据表已启用（双写增强检索）"
-    else:
-        msg += "；轻云数据表未启用（后台表需含 share_uid 等 10 字段后自动启用，不影响共享）"
-    return {"ok": True, "msg": msg}
+    return {"ok": True, "msg": "网盘与共享索引访问正常"}
 
 
-@app.post("/api/share/quick")
-def api_share_quick(req: dict):
-    """编辑器快捷分享：把当前专报的 标题/期号/正文/脚注引用 写入共享索引（文字稿）。"""
-    from app import share_apihz as sa
-    kind = str(req.get("kind") or "single")
-    rid = int(req.get("id") or 0)
-    if not rid:
-        return {"ok": False, "error": "缺少专报 ID"}
-    if kind == "single":
-        rep = db.get_report(rid)
-        if not rep:
-            return {"ok": False, "error": "专报不存在"}
-        title, issue = rep.get("title") or "", str(rep.get("issue_no") or "")
-        sections = []
-        for s in (rep.get("body") or []):
-            if isinstance(s, dict):
-                sections.append(str(s.get("title") or ""))
-                for b in (s.get("blocks") or []):
-                    if isinstance(b, dict):
-                        sections.append(str(b.get("text") or ""))
-        cites = [(c.get("ref") or "") for c in (rep.get("citations") or [])]
-        base_kind = "single"
-    else:
-        m = db.get_multi_report(rid)
-        if not m:
-            return {"ok": False, "error": "综合/自定义专报不存在"}
-        title, issue = m.get("title") or "", str(m.get("issue_no") or "")
-        sections = []
-        for s in (m.get("body") or []):
-            if isinstance(s, dict):
-                sections.append(str(s.get("title") or ""))
-                for b in (s.get("blocks") or []):
-                    if isinstance(b, dict):
-                        sections.append(str(b.get("text") or ""))
-        cites = [(c.get("ref") or "") for c in (m.get("citations") or [])]
-        base_kind = "custom" if m.get("custom") else "multi"
-    if not (title or "".join(sections)).strip():
-        return {"ok": False, "error": "专报内容为空，无可分享"}
-    c = sa.get_creds()
-    if not sa.creds_ready():
-        return {"ok": False, "error": "共享凭据未配置（设置 → 专报共享）"}
-    note = ("脚注引用：" + "；".join(x for x in cites if x))[:400]
-    r = sa.share_text_record(c, title, issue,
-                             "\n".join(x for x in sections if x.strip()),
-                             note=note,
-                             share_name=db.get_setting("share_display_name") or "",
-                             kind_tag=base_kind)
-    if not r.get("ok"):
-        return r
-    db.log("share", f"快捷分享已上传：{title[:40]}（{c['uid']}）")
-    return {"ok": True, "title": title, "uid": c["uid"], "msg": ""}
+class MigrateReq(BaseModel):
+    path: str
+
+
+@app.post("/api/migrate")
+def api_migrate(req: MigrateReq):
+    """v2.21.7 数据迁移：从旧版本程序目录一键并入本机（附加式，不动已有数据）。"""
+    from app import migrate as mg
+    if not mg:
+        return {"ok": False, "error": "迁移模块缺失"}
+    r = mg.migrate_from(req.path)
+    if r.get("ok"):
+        db.log("system", f"数据迁移完成：来自 {r.get('old_db','')}，共并入 {r.get('total',0)} 项")
+    return r
 
 
 @app.get("/api/share/list")
@@ -1337,14 +1294,6 @@ def api_share_list(uid: str = "", q: str = ""):
     if err:
         return {"ok": False, "error": err, "records": []}
     rows = []
-    # v2.21.6 数据表行并入（探测可用时；rid=db:{t_id} 便于删除端点统一处理）
-    try:
-        if sa.table_ready(c):
-            dbrows, derr = sa.record_query(c, uid, q, 100)
-            if not derr:
-                recs = list(recs or []) + dbrows
-    except Exception:
-        pass
     for r in (recs or []):
         if uid.strip() and (r.get("share_uid") or "").strip() != uid.strip():
             continue
@@ -1408,18 +1357,6 @@ def api_share_delete(req: dict):
     if not rid:
         return {"ok": False, "error": "缺少记录 ID"}
     c = sa.get_creds()
-    if rid.startswith("db:"):   # v2.21.6 数据表行删除
-        try:
-            t_id = int(rid[3:])
-        except ValueError:
-            return {"ok": False, "error": "记录 ID 无效"}
-        if not sa.table_ready(c):
-            return {"ok": False, "error": "轻云数据表未启用"}
-        err = sa.record_delete(c, t_id, c["uid"])
-        if err:
-            return {"ok": False, "error": f"删除失败：{err}"}
-        db.log("share", f"数据表共享记录已删除：t_id={t_id}")
-        return {"ok": True, "pan_msg": "无网盘文件"}
     r = sa.share_delete_record(c, rid, c["uid"])
     if r.get("ok"):
         db.log("share", f"共享记录已删除：rid={rid}（网盘：{r.get('pan_msg') or '成功'}）")

@@ -1584,6 +1584,19 @@ body.dark .diff-new{background:rgba(13,148,136,.22); color:#5eead4;}
           <span id="shareCfgMsg" class="muted" style="font-size:12.5px;align-self:center"></span>
         </div>
       </div>
+      <div class="card" id="migrateCard" style="margin-top:2px">
+        <!-- v2.21.7 数据迁移：从旧版本程序目录一键并入（附加式，不动本机已有数据） -->
+        <h3>数据迁移</h3>
+        <div class="d" style="color:var(--sub);font-size:12px;line-height:1.6;margin-bottom:8px">
+          换用新版程序后，把<b>旧版本程序根目录</b>（旧 exe 所在、含 finbrief.db 或 data\finbrief.db 的目录）填到下面，
+          一键把旧数据并入本机：<b>线索、专报（单篇/综合/自定义）、收藏夹、信源、热点方向、任务/运行日志、全部设置</b>（含自定义 API 配置）。
+          附加式迁移——本机已有的数据一律不动，旧库独有的才并入；加密项（API Key 等）绑定原机器，迁移后请在本机重新填写一次。</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <input type="text" id="migratePath" placeholder="D:\\旧版本\\金融热点编译系统（旧程序根目录）" style="flex:1;min-width:260px">
+          <button onclick="runMigrate()">⇪ 一键迁移</button>
+        </div>
+        <div id="migrateMsg" class="pt-sub" style="margin-top:8px"></div>
+      </div>
     </div>
   </div>
   <div class="card" id="aboutCard" style="margin-top:18px">
@@ -1625,8 +1638,6 @@ body.dark .diff-new{background:rgba(13,148,136,.22); color:#5eead4;}
     <button id="edTabEdit" title="点击后可直接在左侧改写文字（再点一次退出并自动保存）">✎ 人工编辑</button>
     <span style="flex:1"></span>
     <span class="fw-btns">
-      <!-- v2.21.4 缩放键左侧「快捷分享」：文字稿直传共享索引，好友按 uid 检索调取 -->
-      <button class="fw-ctl" id="fwQuickShare" title="快捷分享：把当前专报文字稿上传共享，好友按我的分享用户名即可检索查看全文" onclick="quickShareCurrent()" style="color:var(--teal);width:auto;min-width:34px;padding:0 8px;white-space:nowrap">⇪ 分享</button>
       <button class="fw-ctl" id="fwFontS" title="缩小窗口字体">A−</button>
       <button class="fw-ctl" id="fwFontL" title="放大窗口字体">A＋</button>
       <button class="fw-ctl" id="fwFontD" title="恢复默认字体大小">默认</button>
@@ -4241,6 +4252,29 @@ async function testShareCfg(){
   const r = await api("/api/share/test", {method:"POST", body:"{}"});
   if(el) el.textContent = r.ok ? "✓ " + (r.msg || "连接正常") : "✕ " + (r.error || "失败");
 }
+/* ---------- v2.21.7 数据迁移 ---------- */
+const _TBL_LABEL = {settings:"设置项", sources_new:"新增信源", sources_kept:"本机已有信源(保留)",
+  items:"线索", screenings:"筛选判定", reports:"单篇专报", fetch_runs:"检索记录",
+  favorites:"收藏", hotspots:"热点分析", run_logs:"运行日志", task_runs:"任务历史",
+  token_usage:"Token用量", multi_reports:"综合/自定义专报"};
+async function runMigrate(){
+  const p = $("#migratePath").value.trim();
+  const box = $("#migrateMsg");
+  if(!p){ if(box) box.textContent = "请先填写旧版本程序根目录"; return; }
+  if(!confirm(`将把「${p}」的旧数据并入本机？\n\n附加式迁移：本机已有数据一律不动，旧库独有内容才并入（线索/专报/收藏/信源/热点/设置等）。建议迁移前备份 data\\ 目录。`)) return;
+  if(box) box.textContent = "迁移中…（数据量大时可能需要几十秒）";
+  const r = await api("/api/migrate", {method:"POST", body: JSON.stringify({path: p})});
+  if(!r.ok){
+    if(box) box.textContent = "✕ " + (r.error || "迁移失败");
+    toast(r.error || "迁移失败");
+    return;
+  }
+  const parts = Object.entries(r.stats || {}).map(([k, v]) => `${_TBL_LABEL[k] || k} ${v}`).join(" · ");
+  if(box) box.textContent = `✓ 迁移完成（共 ${r.total} 项）：${parts}` +
+    ((r.notes || []).length ? `\n${r.notes.join("；")}` : "");
+  toast(`迁移完成：共并入 ${r.total} 项`, 8000);
+  loadSettings(); loadStats(); loadSources(); loadItems();
+}
 /* ---------- v2.21.4 共享浮窗（上传 / 检索） ---------- */
 let shareFriends = [];   // {name, uid}
 let shareTab = "up";
@@ -4258,6 +4292,14 @@ function _shareKindFor(){   // 当前专报管理页签 → 共享 kind
 let sharePick = new Set();   // v2.21.6 弹窗内勾选集（kind:id 字符串）
 async function shareModalOpen(forceKind){
   try{ const c = await api("/api/share/config"); shareFriends = c.share_friends||[]; }catch(e){}
+  // v2.21.7 修复：从自定义专报浮窗进入时先收起它（两个模态同层叠加会互相遮挡）
+  if(forceKind === "custom"){
+    try{ custClose(); }catch(e){}
+  }
+  // 表格勾选带入需要列表数据；若未加载（从浮窗直达）先拉一次
+  if(!REPORTS.length || !MULTI_REPORTS.length){
+    try{ await loadReports(); }catch(e){}
+  }
   const sel = $("#shareUpKind");
   sel.value = forceKind || _shareKindFor();   // 默认跟随当前页签（自定义浮窗进来即 custom）
   sharePick = new Set();
@@ -4374,17 +4416,6 @@ async function shareDeleteRec(rid){
   const r = await api("/api/share/delete", {method:"POST", body: JSON.stringify({rid})});
   if(r.ok){ toast("已删除（网盘：" + (r.pan_msg||"成功") + "）"); shareFindRun(); }
   else toast(r.error || "删除失败");
-}
-/* ---------- v2.21.4 编辑器快捷分享 ---------- */
-async function quickShareCurrent(){
-  if(!editingId){ toast("请先打开一篇专报"); return; }
-  const kind = editingKind==="multi" ? "multi" : "single";
-  const label = kind==="multi" ? "综合/自定义专报" : "单篇专报";
-  if(!confirm(`将把当前${label}的文字稿（标题/期号/正文/脚注引用）上传到轻云数据表共享，好友可用你的分享用户名检索查看。继续？`)) return;
-  toast("上传中…");
-  const r = await api("/api/share/quick", {method:"POST", body: JSON.stringify({kind, id: editingId})});
-  if(r.ok){ toast(`✓ 已快捷分享（${r.uid||""}）——好友在共享窗口检索即可查看全文`, 8000); }
-  else toast(r.error || "快捷分享失败");
 }
 /* ---------- 试用体验额度（v2.8） ---------- */
 async function loadTrial(refresh, preset){
