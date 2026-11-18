@@ -877,7 +877,7 @@ body.dark .diff-new{background:rgba(13,148,136,.22); color:#5eead4;}
     </div>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
       <button id="btnCustomGo">✦ 开始 AI 编译</button>
-      <button class="ghost sm" onclick="shareModalOpen('custom')" title="把已生成的自定义专报上传共享给圈内好友">⇪ 共享已生成的专报</button>
+      <button class="ghost sm" onclick="shareModalOpen('custom')" title="把已生成的自定义专报 Word 上传共享给圈内好友（与专报管理右上角入口相同）">⇪ 专报共享</button>
       <span class="muted" style="font-size:12.5px">任务在“任务中心”可查进度，可在运行中打断；编好后出现在“综合专报”页签，编辑/取证/导出与常规专报一致</span>
       <span style="flex:1"></span>
       <button class="ghost sm" onclick="custClearAll()">清空重来</button>
@@ -1581,6 +1581,8 @@ body.dark .diff-new{background:rgba(13,148,136,.22); color:#5eead4;}
           <button onclick="saveShareCfg()">保存</button>
           <button class="ghost" onclick="applyDefaultShareCfg()">一键采用默认 ID/KEY</button>
           <button class="ghost" onclick="testShareCfg()">测试连接</button>
+          <a class="link" href="https://pan.erguanmingmin.com/views/login.php" target="_blank"
+             title="在 apihz 官网注册后即可用自己 ID/KEY 共享；程序内置默认 ID/KEY 也可直接用" style="align-self:center;font-size:12.5px">网盘注册/登录 ↗</a>
           <span id="shareCfgMsg" class="muted" style="font-size:12.5px;align-self:center"></span>
         </div>
       </div>
@@ -1593,6 +1595,7 @@ body.dark .diff-new{background:rgba(13,148,136,.22); color:#5eead4;}
           附加式迁移——本机已有的数据一律不动，旧库独有的才并入；加密项（API Key 等）绑定原机器，迁移后请在本机重新填写一次。</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <input type="text" id="migratePath" placeholder="D:\\旧版本\\金融热点编译系统（旧程序根目录）" style="flex:1;min-width:260px">
+          <button class="ghost" onclick="pickMigrateFolder()" title="弹出目录选择框（浏览器模式下不可用，请手动粘贴）">📁 浏览…</button>
           <button onclick="runMigrate()">⇪ 一键迁移</button>
         </div>
         <div id="migrateMsg" class="pt-sub" style="margin-top:8px"></div>
@@ -4274,6 +4277,13 @@ async function runMigrate(){
     ((r.notes || []).length ? `\n${r.notes.join("；")}` : "");
   toast(`迁移完成：共并入 ${r.total} 项`, 8000);
   loadSettings(); loadStats(); loadSources(); loadItems();
+}
+async function pickMigrateFolder(){   // v2.21.8 桌面窗口弹出目录选择（浏览器模式不支持，手动粘贴）
+  try{
+    const r = await api("/api/pick_folder", {method: "POST", body: "{}"});
+    if(r && r.ok && r.path){ $("#migratePath").value = r.path; return; }
+    if(r && r.error && r.error !== "cancel") toast(r.error);
+  }catch(e){ toast("当前环境不支持弹窗选择，请手动粘贴路径"); }
 }
 /* ---------- v2.21.4 共享浮窗（上传 / 检索） ---------- */
 let shareFriends = [];   // {name, uid}

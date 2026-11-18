@@ -35,6 +35,54 @@ def _xor_decode(enc: str) -> str:
     return "".join(chr(ord(ch) ^ _DEF_KEY[0]) for ch in enc)
 
 
+def _parse_friends(raw: str) -> list:
+    """好友列表 JSON [{name, uid}] 解析（容错）。"""
+    try:
+        arr = _j.loads(raw or "[]")
+        if isinstance(arr, list):
+            return [{"name": str(x.get("name", "")).strip()[:20],
+                     "uid": str(x.get("uid", "")).strip()[:40]}
+                    for x in arr if str(x.get("uid", "")).strip()]
+    except (ValueError, TypeError):
+        pass
+    return []
+
+
+def _default_uid() -> str:
+    """首次自动生成稳定个人标识（如 fb-a3f2c81d），存 DB 持久化。"""
+    from app import db
+    uid = db.get_setting("share_uid") or ""
+    if uid:
+        return uid
+    uid = "fb-" + _secrets.token_hex(4)
+    db.set_setting("share_uid", uid)
+    return uid
+
+
+def _mask(v: str) -> str:
+    return (v[:2] + "…" + v[-2:]) if len(v) > 6 else v
+
+
+def db_has_custom_creds() -> bool:
+    from app import db
+    return bool(db.get_secret("apihz_id") and db.get_secret("apihz_key"))
+
+
+def default_creds_masked() -> dict:
+    d = get_creds()
+    return {
+        "using_default": not db_has_custom_creds(),
+        "id_masked": _mask(d["id"]),
+        "key_masked": _mask(d["key"]),
+        "uid": d["uid"],
+    }
+
+
+def creds_ready() -> bool:
+    c = get_creds()
+    return bool(c["id"] and c["key"])
+
+
 def get_creds() -> dict:
     """凭据回退链：DB 配置（DPAPI 加密）→ 内置默认（混淆解码）。"""
     from app import db
@@ -52,6 +100,74 @@ def get_creds() -> dict:
 def _record_key(r: dict):
     """排序键：rid 自身（前缀=时间到毫秒，字典序即时间序）。"""
     return str(r.get("rid") or "")
+
+
+def _index_url(creds: dict) -> str:
+    """共享索引直链：网盘 URL 模式实测为 /file/{开发者ID}/{name}{type}。"""
+    return f"{PAN_HOST}/file/{creds['id']}/{INDEX_FULL}"
+
+
+def _gen_rid() -> str:
+    """记录 ID：日期+时分秒+毫秒+6 位强随机 hex（同圈内唯一且字典序=时间序）。"""
+    import secrets
+    import time as _t
+    from app import db
+    return (db.now_iso().replace("-", "").replace("T", "").replace(":", "")[:14]
+            + f"{_t.time_ns() % 1000:03d}" + secrets.token_hex(3))
+
+
+def index_fetch(creds: dict) -> tuple:
+    """拉取共享索引。返回 (records list, err)。404 视为空索引。"""
+    try:
+        with httpx.Client(timeout=20, verify=False, follow_redirects=True) as cli:
+            resp = cli.get(_index_url(creds))
+        if resp.status_code == 404:
+            return [], None
+        resp.raise_for_status()
+        obj = resp.json()
+        if isinstance(obj, dict) and isinstance(obj.get("records"), list):
+            recs = [r for r in obj["records"] if isinstance(r, dict)]
+            if recs:
+                _cache_save(recs)
+            return recs, None
+        return [], None
+    except httpx.HTTPError as e:
+        return None, f"{type(e).__name__}: {str(e)[:110]}"
+    except (ValueError, TypeError):
+        return [], None
+
+
+def _cache_load() -> list:
+    """本地索引快照（每次成功写入/拉取时更新；CDN 延迟与误删时兜底）。"""
+    from app import db
+    try:
+        arr = _j.loads(db.get_setting("share_index_cache") or "[]")
+        return [r for r in arr if isinstance(r, dict)]
+    except (ValueError, TypeError):
+        return []
+
+
+def _cache_save(records: list) -> None:
+    from app import db
+    db.set_setting("share_index_cache", _j.dumps(records[-220:], ensure_ascii=False))
+
+
+def index_fetch_merged(creds: dict) -> tuple:
+    """远端索引 ∪ 本地快照（按 rid 并集、远端优先）——抵御 CDN 刷新延迟/误删。"""
+    recs, err = index_fetch(creds)
+    if err:
+        return None, err
+    cache = _cache_load()
+    if not cache:
+        return recs, None
+    by_rid = {}
+    for r in cache:
+        by_rid[str(r.get("rid"))] = r
+    for r in recs:
+        by_rid[str(r.get("rid"))] = r   # 远端覆盖同 rid
+    merged = list(by_rid.values())
+    merged = _trim(merged)
+    return merged, None
 
 
 def index_save(creds: dict, records: list) -> tuple:
@@ -150,7 +266,6 @@ def share_word_file(creds: dict, rid: str, title: str, issue: str,
     if ferr:
         return {"ok": False, "error": f"共享索引读取失败：{ferr}", "resurl": resurl}
     recs = _trim(recs or [])[:WORD_KEEP - 1]
-    import random
     recs.insert(0, {"rid": _gen_rid(),
                     "share_uid": creds["uid"], "share_name": share_name[:60],
                     "kind": "file", "title": (title or "")[:190],
@@ -170,7 +285,6 @@ def share_text_record(creds: dict, title: str, issue: str, content: str,
     recs, ferr = index_fetch_merged(creds)
     if ferr:
         return {"ok": False, "error": f"共享索引读取失败：{ferr}"}
-    import random
     recs = _trim(recs or [])[:TEXT_KEEP - 1]
     recs.insert(0, {"rid": _gen_rid(),
                     "share_uid": creds["uid"], "share_name": share_name[:60],
@@ -217,6 +331,8 @@ def upload_word_share(creds: dict, kind: str, rid: int, note: str = "") -> dict:
     """把一份专报 Word 共享：取已导出文件（无则先导出）→ 网盘上传 → 索引登记。"""
     from app import db
     from app.exporter import docx_builder as ex
+    if kind == "custom":   # v2.21.8 修复：自定义专报与综合同表 multi_reports，此前一律报"未知专报类型"
+        kind = "multi"
     if kind == "single":
         rep = db.get_report(rid)
         if not rep:

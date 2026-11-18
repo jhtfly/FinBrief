@@ -40,6 +40,10 @@ from app.tasks import run_in_background, task_snapshot, cancel_task, interrupt_t
 
 app = FastAPI(title="金融热点编译系统")
 
+# v2.21.8 桌面窗口句柄（main.py 启动后注入）；浏览器模式/退化模式为 None。
+# 目录选择弹窗（/api/pick_folder）依赖它，未注入时返回引导文案。
+WEBVIEW_WINDOW = None
+
 
 @app.get("/")
 def index():
@@ -1282,6 +1286,25 @@ def api_migrate(req: MigrateReq):
     if r.get("ok"):
         db.log("system", f"数据迁移完成：来自 {r.get('old_db','')}，共并入 {r.get('total',0)} 项")
     return r
+
+
+@app.post("/api/pick_folder")
+def api_pick_folder():
+    """v2.21.8 弹出系统目录选择框（数据迁移选旧版本根目录用）。
+
+    依赖 main.py 注入的桌面窗口句柄（pywebview FOLDER_DIALOG）；浏览器/退化
+    模式无窗口句柄，返回引导文案由用户手动粘贴路径。取消选择返回 ok=False。"""
+    win = globals().get("WEBVIEW_WINDOW")
+    if win is None:
+        return {"ok": False, "error": "当前为浏览器模式，请手动粘贴旧版本程序根目录"}
+    try:
+        import webview
+        result = win.create_file_dialog(webview.FOLDER_DIALOG)
+        if result and len(result) and str(result[0]).strip():
+            return {"ok": True, "path": str(result[0])}
+        return {"ok": False, "error": "cancel"}
+    except Exception:
+        return {"ok": False, "error": "弹窗选择失败，请手动粘贴旧版本程序根目录"}
 
 
 @app.get("/api/share/list")

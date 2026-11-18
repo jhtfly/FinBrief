@@ -250,6 +250,13 @@ def main():
             boot_log(f"端口就绪: {ok}")
             if ok:
                 window.load_url(url)
+                # v2.21.8 注入桌面窗口句柄（数据迁移的目录选择弹窗用）；
+                # 此时 app.server 已被后端线程加载，这里是缓存命中、零开销。
+                try:
+                    from app import server as _srv
+                    _srv.WEBVIEW_WINDOW = window
+                except Exception:
+                    pass
                 start_rsshub_async()   # v2.12.0：界面就绪后后台拉起内置 RSSHub（不阻塞加载）
             else:
                 window.load_html(ERROR_HTML.replace("__ERR__", ""))
